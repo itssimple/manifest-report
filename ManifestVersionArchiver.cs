@@ -1,4 +1,5 @@
-﻿using Manifest.Report.Classes;
+﻿using Amazon.S3;
+using Manifest.Report.Classes;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -12,11 +13,13 @@ namespace Manifest.Report
         public const string ManifestUrl = $"{ApiBaseUrl}/Destiny2/Manifest/";
         private readonly ILogger<ManifestVersionArchiver> _logger;
         private readonly HttpClient _httpClient;
+        private readonly AmazonS3Client _s3Client;
 
-        public ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, HttpClient httpClient)
+        public ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, HttpClient httpClient, AmazonS3Client s3Client)
         {
             _logger = logger;
             _httpClient = httpClient;
+            _s3Client=s3Client;
         }
 
         private async Task<Destiny2Response<Destiny2Manifest>?> GetManifest()

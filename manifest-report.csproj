@@ -7,4 +7,19 @@
     <RootNamespace>Manifest.Report</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Folder Include="Jobs\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="manifest.report.environment.example.json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="AWSSDK.S3" Version="3.7.411.3" />
+    <PackageReference Include="Hangfire.AspNetCore" Version="1.8.17" />
+    <PackageReference Include="Hangfire.Console" Version="1.4.3" />
+    <PackageReference Include="Hangfire.Redis.StackExchange" Version="1.9.4" />
+  </ItemGroup>
+
 </Project>

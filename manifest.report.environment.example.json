@@ -1,0 +1,7 @@
+{
+  "Minio": {
+    "ConnectionString": "<server endpoint>",
+    "AccessKey": "<accesskey>",
+    "SecretKey": "<secretkey>"
+  }
+}
