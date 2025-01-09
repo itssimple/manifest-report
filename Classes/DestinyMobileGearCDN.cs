@@ -5,14 +5,14 @@ namespace Manifest.Report.Classes
     public class Destiny2MobileGearCDN
     {
         [JsonPropertyName("Geometry")]
-        public string Geometry { get; set; }
+        public required string Geometry { get; set; }
         [JsonPropertyName("Texture")]
-        public string Texture { get; set; }
+        public required string Texture { get; set; }
         [JsonPropertyName("PlateRegion")]
-        public string PlateRegion { get; set; }
+        public required string PlateRegion { get; set; }
         [JsonPropertyName("Gear")]
-        public string Gear { get; set; }
+        public required string Gear { get; set; }
         [JsonPropertyName("Shader")]
-        public string Shader { get; set; }
+        public required string Shader { get; set; }
     }
 }

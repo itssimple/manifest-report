@@ -7,6 +7,6 @@ namespace Manifest.Report.Classes
         [JsonPropertyName("version")]
         public int Version { get; set; }
         [JsonPropertyName("path")]
-        public string Path { get; set; }
+        public required string Path { get; set; }
     }
 }
