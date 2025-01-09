@@ -7,7 +7,7 @@ using Manifest.Report;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Configuration.AddJsonFile("manifest.report.environment.json");
+builder.Configuration.AddJsonFile(builder.Configuration["ConfigFile"] ?? "manifest.report.environment.json");
 
 builder.Services.AddHttpClient();
 builder.Services.AddHangfire(config =>
