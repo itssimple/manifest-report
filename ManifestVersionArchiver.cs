@@ -101,8 +101,6 @@ namespace Manifest.Report
 
             var versionFolder = $"versions/{manifestVersionGuid}";
 
-            downloadItems.Add((ManifestUrl, $"{versionFolder}/manifest.json"));
-
             var sqliteFileName = manifest.MobileWorldContentPaths["en"].Split('/').Last();
 
             downloadItems.Add(($"{RootUrl}{manifest.MobileWorldContentPaths["en"]}", $"{versionFolder}/{sqliteFileName}"));
@@ -125,6 +123,14 @@ namespace Manifest.Report
             }
 
             using var fw = new TransferUtility(s3Client);
+
+            await s3Client.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = "manifest-archive",
+                Key = $"{versionFolder}/manifest.json",
+                ContentBody = JsonSerializer.Serialize(manifest)
+            });
+
             foreach (var (url, filePath) in downloadItems)
             {
                 logger.LogDebug("- Downloading {Url} to {FilePath}", url, filePath);
