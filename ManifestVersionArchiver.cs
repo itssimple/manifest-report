@@ -4,6 +4,7 @@ using Amazon.S3.Transfer;
 using Manifest.Report.Classes;
 using System.Net;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace Manifest.Report
@@ -122,13 +123,23 @@ namespace Manifest.Report
                 return;
             }
 
+            var restoredManifest = CleanManifest(manifestVersionGuid!.Value, manifest);
+            var enhancedManifest = EnhanceManifest(manifestVersionGuid!.Value, restoredManifest);
+
             using var fw = new TransferUtility(s3Client);
 
             await s3Client.PutObjectAsync(new PutObjectRequest
             {
                 BucketName = "manifest-archive",
                 Key = $"{versionFolder}/manifest.json",
-                ContentBody = JsonSerializer.Serialize(manifest)
+                ContentBody = JsonSerializer.Serialize(restoredManifest)
+            });
+
+            await s3Client.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = "manifest-archive",
+                Key = $"{versionFolder}/enhanced-manifest.json",
+                ContentBody = JsonSerializer.Serialize(enhancedManifest)
             });
 
             foreach (var (url, filePath) in downloadItems)
@@ -146,5 +157,56 @@ namespace Manifest.Report
                 ContentBody = "Done"
             });
         }
+
+        private Destiny2Manifest CleanManifest(Guid id, Destiny2Manifest manifest)
+        {
+            var clean = manifest.Clone();
+
+            var fileName = clean.MobileWorldContentPaths["en"].Split('/').Last();
+            var otherPath = clean.MobileWorldContentPaths["fr"].Split('/')[0..^1];
+            clean.MobileWorldContentPaths["en"] = string.Join("/", otherPath).Replace("/fr", $"/en/{fileName}");
+
+            for (var i = 0; i < clean.JsonWorldComponentContentPaths["en"].Keys.Count; i++)
+            {
+                var key = clean.JsonWorldComponentContentPaths["en"].Keys.ElementAt(i);
+                clean.JsonWorldComponentContentPaths["en"][key] = $"/common/destiny2_content/json/en/{key}-{id}.json";
+            }
+
+            return clean;
+        }
+
+        private Destiny2ManifestEnhanced EnhanceManifest(Guid id, Destiny2Manifest manifest)
+        {
+            Destiny2ManifestEnhanced enhanced = new Destiny2ManifestEnhanced
+            {
+                Version = manifest.Version,
+                MobileWorldContentPaths = manifest.MobileWorldContentPaths.Where(k => k.Key == "en").ToDictionary(k => k.Key, v => v.Value),
+                JsonWorldComponentContentPaths = manifest.JsonWorldComponentContentPaths.Where(k => k.Key == "en").ToDictionary(k => k.Key, v => v.Value)
+            };
+
+            var fileName = enhanced.MobileWorldContentPaths["en"].Split('/').Last();
+            enhanced.MobileWorldContentPaths["en"] = $"/manifest-archive/versions/{id}/{fileName}";
+
+            var tables = enhanced.JsonWorldComponentContentPaths["en"];
+
+            enhanced.JsonWorldComponentContentPaths["en"] = tables.ToDictionary(k => k.Key, v => $"/manifest-archive/versions/{id}/tables/{v.Key}.json");
+
+            return enhanced;
+        }
+    }
+
+    public static class SystemExtension
+    {
+        public static T Clone<T>(this T source) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(source));
+    }
+
+    public class Destiny2ManifestEnhanced
+    {
+        [JsonPropertyName("version")]
+        public string Version { get; set; }
+        [JsonPropertyName("mobileWorldContentPaths")]
+        public Dictionary<string, string> MobileWorldContentPaths { get; set; }
+        [JsonPropertyName("jsonWorldComponentContentPaths")]
+        public Dictionary<string, Dictionary<string, string>> JsonWorldComponentContentPaths { get; set; }
     }
 }
