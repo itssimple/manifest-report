@@ -78,6 +78,7 @@ namespace Manifest.Report
         private async Task<Guid> GetPreviousManifestVersion()
         {
             // Load the previous manifest version from the database
+            await Task.CompletedTask;
             return Guid.Empty;
         }
 
