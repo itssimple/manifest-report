@@ -16,7 +16,10 @@ namespace manifest_report.Pages
 
         public async Task OnGet()
         {
-            await _manifestVersionArchiver.CheckForNewManifest();
+            if (Request.Query["fetch-manifest"] == "true")
+            {
+                await _manifestVersionArchiver.CheckForNewManifest();
+            }
         }
     }
 }
