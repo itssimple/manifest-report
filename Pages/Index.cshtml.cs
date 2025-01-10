@@ -6,20 +6,14 @@ namespace manifest_report.Pages
     public class IndexModel : PageModel
     {
         private readonly ILogger<IndexModel> _logger;
-        private readonly ManifestVersionArchiver _manifestVersionArchiver;
 
-        public IndexModel(ILogger<IndexModel> logger, ManifestVersionArchiver manifestVersionArchiver)
+        public IndexModel(ILogger<IndexModel> logger)
         {
             _logger = logger;
-            _manifestVersionArchiver = manifestVersionArchiver;
         }
 
         public async Task OnGet()
         {
-            if (Request.Query["fetch-manifest"] == "true")
-            {
-                await _manifestVersionArchiver.CheckForNewManifest();
-            }
         }
     }
 }
