@@ -90,6 +90,6 @@ app.UseAuthorization();
 
 app.MapRazorPages();
 
-RecurringJob.AddOrUpdate<ManifestCheckJob>("manifest:checknew", x => x.CheckManifest(), "*/5 * * * *");
+RecurringJob.AddOrUpdate<ManifestCheckJob>("manifest:checknew", x => x.CheckManifest(null), "*/5 * * * *");
 
 app.Run();
