@@ -11,7 +11,7 @@ using System.Text.RegularExpressions;
 
 namespace Manifest.Report
 {
-    public partial class ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, HttpClient httpClient, AmazonS3Client s3Client)
+    public partial class ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, IHttpClientFactory httpClientFactory, AmazonS3Client s3Client)
     {
         public const string RootUrl = "https://www.bungie.net";
         public const string ApiBaseUrl = $"{RootUrl}/Platform";
@@ -19,12 +19,14 @@ namespace Manifest.Report
         public const string ManifestUrl = $"{ApiBaseUrl}/Destiny2/Manifest/";
 
         private PerformContext? _context;
+        private HttpClient httpClient;
 
         private async Task<Destiny2Response<Destiny2Manifest>?> GetManifest()
         {
             logger.LogDebug("Trying to load manifest from {ManifestUrl}", ManifestUrl);
             _context?.WriteLine($"Trying to load manifest from {ManifestUrl}");
-            var response = await httpClient.GetAsync(ManifestUrl);
+
+            var response = await httpClient.GetAsync($"{ManifestUrl}?_breakCache={DateTime.Now.Ticks}");
 
             if (!response.IsSuccessStatusCode)
             {
@@ -46,6 +48,7 @@ namespace Manifest.Report
         public async Task<bool> CheckForNewManifest(PerformContext context)
         {
             _context = context;
+            httpClient = httpClientFactory.CreateClient("Bungie");
 
             var manifest = await GetManifest();
             if (manifest == null || manifest.Response == null)

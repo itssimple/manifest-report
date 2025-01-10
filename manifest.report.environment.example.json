@@ -10,5 +10,8 @@
   "Hangfire": {
     "User": "<username>",
     "Password": "<password>"
+  },
+  "Bungie": {
+    "APIKey": "<apikey>"
   }
 }

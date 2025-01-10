@@ -15,10 +15,15 @@ builder.Configuration.AddJsonFile(builder.Configuration["ConfigFile"] ?? "manife
 string hangfireUser = builder.Configuration["Hangfire:User"] ?? "local";
 string hangfirePassword = builder.Configuration["Hangfire:Password"] ?? "host";
 
+string bungieApiKey = builder.Configuration["Bungie:ApiKey"] ?? string.Empty;
+
 var redisHost = builder.Configuration["Redis:Host"] ?? "127.0.0.1:6739";
 var redis = ConnectionMultiplexer.Connect(redisHost);
 
-builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("Bungie", config =>
+{
+    config.DefaultRequestHeaders.Add("X-API-Key", bungieApiKey);
+});
 
 builder.Services.AddHangfire(config =>
 {
