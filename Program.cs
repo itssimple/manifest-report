@@ -2,25 +2,37 @@ using Amazon;
 using Amazon.S3;
 using Hangfire;
 using Hangfire.Console;
+using Hangfire.Dashboard.BasicAuthorization;
 using Hangfire.Redis.StackExchange;
 using Manifest.Report;
+using Manifest.Report.Jobs;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddJsonFile(builder.Configuration["ConfigFile"] ?? "manifest.report.environment.json");
 
+string hangfireUser = builder.Configuration["Hangfire:User"] ?? "local";
+string hangfirePassword = builder.Configuration["Hangfire:Password"] ?? "host";
+
+var redisHost = builder.Configuration["Redis:Host"] ?? "127.0.0.1:6739";
+var redis = ConnectionMultiplexer.Connect(redisHost);
+
 builder.Services.AddHttpClient();
+
 builder.Services.AddHangfire(config =>
 {
     config
         .UseSimpleAssemblyNameTypeSerializer()
         .UseRecommendedSerializerSettings()
-        .UseRedisStorage(SharedSettings.RedisClient, new RedisStorageOptions
+        .UseRedisStorage(redis, new RedisStorageOptions
         {
-            Db = 8
+            Db = 8,
+            Prefix = "manifest-report:"
         })
         .UseConsole();
 });
+builder.Services.AddHangfireServer();
 
 builder.Services.AddScoped(config =>
 {
@@ -51,10 +63,33 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization =
+    [
+        new BasicAuthAuthorizationFilter(new BasicAuthAuthorizationFilterOptions
+        {
+            SslRedirect = false,
+            RequireSsl = false,
+            LoginCaseSensitive = true,
+            Users =
+            [
+                new BasicAuthAuthorizationUser
+                {
+                    Login = hangfireUser,
+                    PasswordClear = hangfirePassword
+                }
+            ]
+        })
+    ]
+});
+
 app.UseRouting();
 
 app.UseAuthorization();
 
 app.MapRazorPages();
+
+RecurringJob.AddOrUpdate<ManifestCheckJob>("manifest:checknew", x => x.CheckManifest(), "*/5 * * * *");
 
 app.Run();

@@ -3,5 +3,12 @@
     "ConnectionString": "<server endpoint>",
     "AccessKey": "<accesskey>",
     "SecretKey": "<secretkey>"
+  },
+  "Redis": {
+    "Host": "<server endpoint>"
+  },
+  "Hangfire": {
+    "User": "<username>",
+    "Password": "<password>"
   }
 }
