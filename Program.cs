@@ -1,11 +1,13 @@
 using Amazon;
 using Amazon.S3;
+#if !DEBUG
 using Hangfire;
 using Hangfire.Console;
 using Hangfire.Dashboard.BasicAuthorization;
 using Hangfire.Redis.StackExchange;
-using Manifest.Report;
 using Manifest.Report.Jobs;
+#endif
+using Manifest.Report;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -24,7 +26,7 @@ builder.Services.AddHttpClient("Bungie", config =>
 {
     config.DefaultRequestHeaders.Add("X-API-Key", bungieApiKey);
 });
-
+#if !DEBUG
 builder.Services.AddHangfire(config =>
 {
     config
@@ -38,6 +40,7 @@ builder.Services.AddHangfire(config =>
         .UseConsole();
 });
 builder.Services.AddHangfireServer();
+#endif
 
 builder.Services.AddScoped(config =>
 {
@@ -68,6 +71,7 @@ if (!app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseStaticFiles();
 
+#if !DEBUG
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {
     Authorization =
@@ -89,12 +93,13 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
     ]
 });
 
+RecurringJob.AddOrUpdate<ManifestCheckJob>("manifest:checknew", x => x.CheckManifest(null), "*/5 * * * *");
+#endif
+
 app.UseRouting();
 
 app.UseAuthorization();
 
 app.MapRazorPages();
-
-RecurringJob.AddOrUpdate<ManifestCheckJob>("manifest:checknew", x => x.CheckManifest(null), "*/5 * * * *");
 
 app.Run();
