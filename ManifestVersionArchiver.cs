@@ -1,6 +1,8 @@
 ﻿using Amazon.S3;
 using Amazon.S3.Model;
 using Amazon.S3.Transfer;
+using Hangfire.Console;
+using Hangfire.Server;
 using Manifest.Report.Classes;
 using System.Net;
 using System.Text.Json;
@@ -9,22 +11,32 @@ using System.Text.RegularExpressions;
 
 namespace Manifest.Report
 {
-    public partial class ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, HttpClient httpClient, AmazonS3Client s3Client)
+    public partial class ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, IHttpClientFactory httpClientFactory, AmazonS3Client s3Client)
     {
         public const string RootUrl = "https://www.bungie.net";
         public const string ApiBaseUrl = $"{RootUrl}/Platform";
 
         public const string ManifestUrl = $"{ApiBaseUrl}/Destiny2/Manifest/";
 
+        private PerformContext? _context;
+        private HttpClient httpClient;
+
         private async Task<Destiny2Response<Destiny2Manifest>?> GetManifest()
         {
             logger.LogDebug("Trying to load manifest from {ManifestUrl}", ManifestUrl);
-            var response = await httpClient.GetAsync(ManifestUrl);
+            _context?.WriteLine($"Trying to load manifest from {ManifestUrl}");
+
+            var response = await httpClient.GetAsync($"{ManifestUrl}?_breakCache={DateTime.Now.Ticks}");
 
             if (!response.IsSuccessStatusCode)
             {
+
+                var responseContent = await response.Content.ReadAsStringAsync();
                 logger.LogError("Failed to load manifest from {ManifestUrl}", ManifestUrl);
-                logger.LogError("Response: {Response}", await response.Content.ReadAsStringAsync());
+                logger.LogError("Response: {Response}", responseContent);
+
+                _context?.WriteLine($"Failed to load manifest from {ManifestUrl}", ManifestUrl);
+                _context?.WriteLine($"Response: {responseContent}");
 
                 return null;
             }
@@ -33,12 +45,16 @@ namespace Manifest.Report
             return JsonSerializer.Deserialize<Destiny2Response<Destiny2Manifest>>(content);
         }
 
-        public async Task<bool> CheckForNewManifest()
+        public async Task<bool> CheckForNewManifest(PerformContext context)
         {
+            _context = context;
+            httpClient = httpClientFactory.CreateClient("Bungie");
+
             var manifest = await GetManifest();
             if (manifest == null || manifest.Response == null)
             {
                 logger.LogError("Failed to load manifest");
+                _context?.WriteLine("Failed to load manifest");
                 return false;
             }
 
@@ -47,6 +63,7 @@ namespace Manifest.Report
             if (currentManifestVersion == null)
             {
                 logger.LogError("Failed to extract version from manifest");
+                _context?.WriteLine("Failed to extract version from manifest");
                 return false;
             }
 
@@ -70,6 +87,7 @@ namespace Manifest.Report
             if (!match.Success)
             {
                 logger.LogError("Failed to extract version from manifest");
+                _context?.WriteLine("Failed to extract version from manifest");
                 return null;
             }
 
@@ -115,11 +133,13 @@ namespace Manifest.Report
             if (!existingVersion)
             {
                 logger.LogInformation("New manifest-version found! Saving {VersionFolder} and downloading SQLite and json definitions", versionFolder);
+                _context?.WriteLine($"New manifest-version found! Saving {versionFolder} and downloading SQLite and json definitions");
             }
 
             if (await FileExistsInStorage($"{versionFolder}/done.txt"))
             {
                 logger.LogInformation("Already downloaded all files, don't want to spam the poor server.");
+                _context?.WriteLine("Already downloaded all files, don't want to spam the poor server.");
                 return;
             }
 
@@ -145,6 +165,7 @@ namespace Manifest.Report
             foreach (var (url, filePath) in downloadItems)
             {
                 logger.LogDebug("- Downloading {Url} to {FilePath}", url, filePath);
+                _context?.WriteLine($"- Downloading {url} to {filePath}");
 
                 using var s = await httpClient.GetStreamAsync(url);
                 await fw.UploadAsync(s, "manifest-archive", filePath);
@@ -156,6 +177,9 @@ namespace Manifest.Report
                 Key = $"{versionFolder}/done.txt",
                 ContentBody = "Done"
             });
+
+            logger.LogInformation("Manifest saved!");
+            _context?.WriteLine("Manifest saved!");
         }
 
         private Destiny2Manifest CleanManifest(Guid id, Destiny2Manifest manifest)
