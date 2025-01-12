@@ -195,11 +195,6 @@ namespace Manifest.Report
         }
     }
 
-    public static class SystemExtension
-    {
-        public static T Clone<T>(this T source) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(source));
-    }
-
     public class Destiny2ManifestEnhanced
     {
         [JsonPropertyName("version")]
