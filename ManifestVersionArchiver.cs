@@ -182,45 +182,44 @@ namespace Manifest.Report
             logger.LogInformation("Manifest saved! Updating list.json with new info");
             _context?.WriteLine("Manifest saved! Updating list.json with new info");
 
-            try
+            var listObj = await s3Client.GetObjectAsync("manifest-archive", "list.json");
+
+            var newVersion = new ManifestInfo
             {
-                var listObj = await s3Client.GetObjectAsync("manifest-archive", "list.json");
+                VersionId = manifestVersionGuid!.Value,
+                Version = manifest.Version,
+                ManifestJsonPath = $"/manifest-archive/{versionFolder}/manifest.json",
+                EnhancedManifestJsonPath = $"/manifest-archive/{versionFolder}/enhanced-manifest.json",
+                DiscoverDate_UTC = discoverDate
+            };
 
-                var newVersion = new ManifestInfo
-                {
-                    VersionId = manifestVersionGuid!.Value,
-                    Version = manifest.Version,
-                    ManifestJsonPath = $"/manifest-archive/{versionFolder}/manifest.json",
-                    EnhancedManifestJsonPath = $"/manifest-archive/{versionFolder}/enhanced-manifest.json",
-                    DiscoverDate_UTC = discoverDate
-                };
+            var versionParts = manifest.Version.Split('.').ToList();
 
-                var versionParts = manifest.Version.Split('.').ToList();
+            var year = $"20{versionParts[1]}";
+            var month = versionParts[2];
+            var day = versionParts[3];
 
-                var year = $"20{versionParts[1]}";
-                var month = versionParts[2];
-                var day = versionParts[3];
+            var time = versionParts[4].Substring(0, 4).Insert(2, ":");
 
-                var time = versionParts[4].Substring(0, 4).Insert(2, ":");
+            var dateFormat = $"{year}-{month}-{day} {time}:00Z";
 
-                var dateFormat = $"{year}-{month}-{day} {time}:00Z";
+            _ = DateTimeOffset.TryParse(dateFormat, out DateTimeOffset manifestDate);
 
-                _ = DateTimeOffset.TryParse(dateFormat, out DateTimeOffset manifestDate);
+            newVersion.ManifestDate_UTC = manifestDate;
 
-                newVersion.ManifestDate_UTC = manifestDate;
+            using var sr = new StreamReader(listObj.ResponseStream);
+            var list = JsonSerializer.Deserialize<List<ManifestInfo>>(await sr.ReadToEndAsync())!;
 
-                using var sr = new StreamReader(listObj.ResponseStream);
-                var list = JsonSerializer.Deserialize<List<ManifestInfo>>(await sr.ReadToEndAsync())!;
+            list.Add(newVersion);
+            await s3Client.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = "manifest-archive",
+                Key = "list.json",
+                ContentBody = JsonSerializer.Serialize(list)
+            });
 
-                list.Add(newVersion);
-                await s3Client.PutObjectAsync(new PutObjectRequest
-                {
-                    BucketName = "manifest-archive",
-                    Key = "list.json",
-                    ContentBody = JsonSerializer.Serialize(list)
-                });
-            }
-            catch { }
+            logger.LogInformation("List updated!");
+            _context?.WriteLine("List updated!");
         }
 
         private Destiny2Manifest CleanManifest(Guid id, Destiny2Manifest manifest)
