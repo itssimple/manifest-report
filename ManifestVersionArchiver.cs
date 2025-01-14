@@ -190,8 +190,8 @@ namespace Manifest.Report
                 {
                     VersionId = manifestVersionGuid!.Value,
                     Version = manifest.Version,
-                    ManifestJsonPath = $"{versionFolder}/manifest.json",
-                    EnhancedManifestJsonPath = $"{versionFolder}/enhanced-manifest.json",
+                    ManifestJsonPath = $"/manifest-archive/{versionFolder}/manifest.json",
+                    EnhancedManifestJsonPath = $"/manifest-archive/{versionFolder}/enhanced-manifest.json",
                     DiscoverDate_UTC = discoverDate
                 };
 
