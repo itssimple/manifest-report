@@ -8,7 +8,6 @@ using System.Net;
 using System.Text.Json;
 using System.Text.Json.JsonDiffPatch;
 using System.Text.Json.Nodes;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
 namespace Manifest.Report
@@ -174,17 +173,18 @@ namespace Manifest.Report
                 await fw.UploadAsync(s, "manifest-archive", filePath);
             }
 
-            await s3Client.PutObjectAsync(new PutObjectRequest
-            {
-                BucketName = "manifest-archive",
-                Key = $"{versionFolder}/done.txt",
-                ContentBody = "Done"
-            });
-
             logger.LogInformation("Manifest saved! Updating list.json with new info");
             _context?.WriteLine("Manifest saved! Updating list.json with new info");
 
             var listObj = await s3Client.GetObjectAsync("manifest-archive", "list.json");
+
+            using var sr = new StreamReader(listObj.ResponseStream);
+            var list = JsonSerializer.Deserialize<List<ManifestInfo>>(await sr.ReadToEndAsync())!;
+
+            logger.LogInformation("Fetched previous version to find differences");
+            _context?.WriteLine("Fetched previous version to find differences");
+
+            var oldVersion = list.Last();
 
             var newVersion = new ManifestInfo
             {
@@ -209,10 +209,22 @@ namespace Manifest.Report
 
             newVersion.ManifestDate_UTC = manifestDate;
 
-            using var sr = new StreamReader(listObj.ResponseStream);
-            var list = JsonSerializer.Deserialize<List<ManifestInfo>>(await sr.ReadToEndAsync())!;
+            var oldMan = oldVersion.VersionId;
+            var newMan = newVersion.VersionId;
+
+            var oldFiles = await FetchAllVersionFiles(oldMan);
+            var newFiles = await FetchAllVersionFiles(newMan);
+
+            var addedFiles = FindNewFiles(oldFiles, newFiles, $"versions/{oldMan}", $"versions/{newMan}");
+            var removedFiles = FindRemovedFiles(oldFiles, newFiles, $"versions/{oldMan}", $"versions/{newMan}");
+            var modifiedFiles = FindModifiedFiles(oldFiles, newFiles, $"versions/{oldMan}", $"versions/{newMan}");
+
+            var changes = await FindDiffsBetweenFiles(newVersion, modifiedFiles, oldFiles, newFiles, addedFiles, removedFiles);
+
+            newVersion.DiffFiles = changes;
 
             list.Add(newVersion);
+
             await s3Client.PutObjectAsync(new PutObjectRequest
             {
                 BucketName = "manifest-archive",
@@ -222,67 +234,36 @@ namespace Manifest.Report
 
             logger.LogInformation("List updated!");
             _context?.WriteLine("List updated!");
+
+            await s3Client.PutObjectAsync(new PutObjectRequest
+            {
+                BucketName = "manifest-archive",
+                Key = $"{versionFolder}/done.txt",
+                ContentBody = "Done"
+            });
         }
 
-        /*
-          var list = await s3Client.GetObjectAsync("manifest-archive", "list.json");
+        async Task<List<S3Object>> FetchAllVersionFiles(Guid version)
+        {
+            ListObjectsV2Response fileResp;
+            var request = new ListObjectsV2Request
+            {
+                BucketName = "manifest-archive",
+                Prefix = $"/versions/{version}/tables"
+            };
 
-		using var sr = new StreamReader(list.ResponseStream);
-		
-		var listJson = await sr.ReadToEndAsync();
+            List<S3Object> files = new List<S3Object>();
 
-		var manifestList = JsonSerializer.Deserialize<List<ManifestInfo>>(listJson).OrderBy(m => m.DiscoverDate_UTC).ToList();
-		
-		DumpContainer dc = new DumpContainer();
+            do
+            {
+                fileResp = await s3Client.ListObjectsV2Async(request);
+                files.AddRange(fileResp.S3Objects.Where(f => !f.Key.Contains("/diffFiles/")));
 
-		dc.Dump();
+                request.ContinuationToken = fileResp.NextContinuationToken;
+            } while (fileResp.IsTruncated);
 
-		for (int i = 1; i < manifestList.Count; i++)
-		{
-			var oldVersion = manifestList[i - 1];
-			var newVersion = manifestList[i];
-
-			var oldMan = oldVersion.VersionId;
-			var newMan = manifestList[i].VersionId;
-
-			dc.UpdateContent(new
-			{
-				OldVersion = oldVersion,
-				NewVersion = newVersion
-			});
-
-			async Task<List<S3Object>> FetchAllVersionFiles(Guid version)
-			{
-				ListObjectsV2Response fileResp;
-				var request = new ListObjectsV2Request
-				{
-					BucketName = "manifest-archive",
-					Prefix = $"/versions/{version}"
-				};
-
-				List<S3Object> files = new List<S3Object>();
-
-				do
-				{
-					fileResp = await s3Client.ListObjectsV2Async(request);
-					files.AddRange(fileResp.S3Objects.Where(f => !f.Key.Contains("/diffFiles/")));
-
-					request.ContinuationToken = fileResp.NextContinuationToken;
-				} while (fileResp.IsTruncated);
-
-				return files;
-			}
-
-			var oldFiles = await FetchAllVersionFiles(oldMan);
-			var newFiles = await FetchAllVersionFiles(newMan);
-
-			var addedFiles = FindNewFiles(oldFiles, newFiles, $"versions/{oldMan}", $"versions/{newMan}");
-			var removedFiles = FindRemovedFiles(oldFiles, newFiles, $"versions/{oldMan}", $"versions/{newMan}");
-			var modifiedFiles = FindModifiedFiles(oldFiles, newFiles, $"versions/{oldMan}", $"versions/{newMan}");
-
-			await FindDiffsBetweenFiles(newVersion, modifiedFiles, oldFiles, newFiles, addedFiles, removedFiles);
-		}
-        */
+            return files;
+        }
 
         private Destiny2Manifest CleanManifest(Guid id, Destiny2Manifest manifest)
         {
@@ -322,32 +303,13 @@ namespace Manifest.Report
 
         public async Task<List<FileDiff>> FindDiffsBetweenFiles(ManifestInfo newVersion, List<string> diffFiles, List<S3Object> previousFiles, List<S3Object> currentFiles, List<string> addedFiles, List<string> removedFiles)
         {
-            var verPath = Path.Combine(@"C:\destiny2\versions", newVersion.VersionId.ToString());
-
-            var dirPath = Path.Combine(verPath, "diffFiles");
-
-            if (Directory.Exists(dirPath))
-            {
-                Directory.Delete(dirPath, true);
-            }
-
-            Directory.CreateDirectory(dirPath);
-
-            Directory.SetCreationTime(verPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-            Directory.SetLastWriteTime(verPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-            Directory.SetLastAccessTime(verPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-
-            Directory.SetCreationTime(dirPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-            Directory.SetLastWriteTime(dirPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-            Directory.SetLastAccessTime(dirPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-
             List<FileDiff> changes = new List<FileDiff>();
 
-            void WriteDiffFile(string diffFile, FileStatus fileStatus, JsonNode? prevJson, JsonNode? currJson)
+            async Task WriteDiffFile(string diffFile, FileStatus fileStatus, JsonNode? prevJson, JsonNode? currJson)
             {
                 var formatter = new DestinyJsonPatchDeltaFormatter();
 
-                var diff = prevJson.Diff(currJson, formatter);
+                var diff = prevJson.Diff(currJson, formatter)!;
                 if (formatter.Changes.Changes > 0)
                 {
                     changes.Add(new FileDiff()
@@ -361,15 +323,15 @@ namespace Manifest.Report
                         FileStatus = fileStatus
                     });
 
-                    var outputPath = Path.Combine(dirPath, diffFile.Split('/').Last());
-                    File.WriteAllText(outputPath, diff.ToJsonString(new JsonSerializerOptions
+                    await s3Client.PutObjectAsync(new PutObjectRequest
                     {
-                        WriteIndented = true
-                    }));
-
-                    File.SetCreationTime(outputPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-                    File.SetLastWriteTime(outputPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
-                    File.SetLastAccessTime(outputPath, newVersion.DiscoverDate_UTC.ToLocalTime().DateTime);
+                        BucketName = "manifest-archive",
+                        Key = $"versions/{newVersion.VersionId.ToString()}/diffFiles/{diffFile.Split('/').Last()}",
+                        ContentBody = diff.ToJsonString(new JsonSerializerOptions
+                        {
+                            WriteIndented = true
+                        }),
+                    });
                 }
             }
 
@@ -378,7 +340,7 @@ namespace Manifest.Report
                 var prevJson = await GetFileAsJsonNode(diffFile, previousFiles);
                 var currJson = await GetFileAsJsonNode(diffFile, currentFiles);
 
-                WriteDiffFile(diffFile, FileStatus.Modified, prevJson, currJson);
+                await WriteDiffFile(diffFile, FileStatus.Modified, prevJson, currJson);
             }
 
             foreach (var added in addedFiles)
@@ -386,7 +348,7 @@ namespace Manifest.Report
                 var prevJson = new JsonObject();
                 var currJson = await GetFileAsJsonNode(added, currentFiles);
 
-                WriteDiffFile(added, FileStatus.Added, prevJson, currJson);
+                await WriteDiffFile(added, FileStatus.Added, prevJson, currJson);
             }
 
             foreach (var removed in removedFiles)
@@ -394,10 +356,9 @@ namespace Manifest.Report
                 var prevJson = await GetFileAsJsonNode(removed, previousFiles);
                 var currJson = new JsonObject();
 
-                WriteDiffFile(removed, FileStatus.Removed, prevJson, currJson);
+                await WriteDiffFile(removed, FileStatus.Removed, prevJson, currJson);
             }
 
-            //changes.Dump("Total changes: " + newVersion.Version + " / " + newVersion.VersionId);
             return changes;
         }
 
@@ -411,7 +372,7 @@ namespace Manifest.Report
             return node;
         }
 
-        List<string> IgnoredFiles = new List<string> { "/done.txt", "/enhanced-manifest.json", "/manifest.json", ".content" };
+        readonly List<string> IgnoredFiles = new List<string> { "/done.txt", "/enhanced-manifest.json", "/manifest.json", ".content" };
 
         public List<string> FindNewFiles(List<S3Object> previousFiles, List<S3Object> currentFiles, string prevPrefix, string currPrefix)
         {
@@ -461,15 +422,5 @@ namespace Manifest.Report
 
             return joined/*.Where(f => f.Curr.ETag != f.Prev.ETag || f.Curr.Size != f.Prev.Size)*/.Select(s => s.Curr.File).ToList();
         }
-    }
-
-    public class Destiny2ManifestEnhanced
-    {
-        [JsonPropertyName("version")]
-        public string Version { get; set; }
-        [JsonPropertyName("mobileWorldContentPaths")]
-        public Dictionary<string, string> MobileWorldContentPaths { get; set; }
-        [JsonPropertyName("jsonWorldComponentContentPaths")]
-        public Dictionary<string, Dictionary<string, string>> JsonWorldComponentContentPaths { get; set; }
     }
 }
