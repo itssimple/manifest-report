@@ -248,8 +248,8 @@ namespace Manifest.Report
 
             // Trigger new site.manifest.report generation from github through a dispatch call
 
-            var url = new Uri("https://api.github.com/repos/itssimple/manifest-report-site/dispatches");
-            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            var ghUrl = new Uri("https://api.github.com/repos/itssimple/manifest-report-site/dispatches");
+            var request = new HttpRequestMessage(HttpMethod.Post, ghUrl);
             request.Headers.Add("Accept", "application/vnd.github+json");
             request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
             request.Headers.Add("Authorization", "Bearer " + ghToken);
