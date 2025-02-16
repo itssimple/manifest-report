@@ -55,7 +55,15 @@ builder.Services.AddScoped(config =>
     return new AmazonS3Client(accessKey, secretKey, s3Config);
 });
 
-builder.Services.AddScoped<ManifestVersionArchiver>();
+builder.Services.AddScoped(config =>
+{
+    return new ManifestVersionArchiver(
+        config.GetRequiredService<ILogger<ManifestVersionArchiver>>(),
+        config.GetRequiredService<IHttpClientFactory>(),
+        config.GetRequiredService<AmazonS3Client>(),
+        builder.Configuration["GHToken"]
+    );
+});
 
 builder.Services.AddRazorPages();
 

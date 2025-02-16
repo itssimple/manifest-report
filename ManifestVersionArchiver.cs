@@ -5,6 +5,7 @@ using Hangfire.Console;
 using Hangfire.Server;
 using Manifest.Report.Classes;
 using System.Net;
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.JsonDiffPatch;
 using System.Text.Json.Nodes;
@@ -12,7 +13,7 @@ using System.Text.RegularExpressions;
 
 namespace Manifest.Report
 {
-    public partial class ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, IHttpClientFactory httpClientFactory, AmazonS3Client s3Client)
+    public partial class ManifestVersionArchiver(ILogger<ManifestVersionArchiver> logger, IHttpClientFactory httpClientFactory, AmazonS3Client s3Client, string ghToken)
     {
         public const string RootUrl = "https://www.bungie.net";
         public const string ApiBaseUrl = $"{RootUrl}/Platform";
@@ -241,6 +242,31 @@ namespace Manifest.Report
                 Key = $"{versionFolder}/done.txt",
                 ContentBody = "Done"
             });
+
+            logger.LogInformation("Triggering new site.manifest.report generation");
+            _context?.WriteLine("Triggering new site.manifest.report generation");
+
+            // Trigger new site.manifest.report generation from github through a dispatch call
+
+            var url = new Uri("https://api.github.com/repos/itssimple/manifest-report-site/dispatches");
+            var request = new HttpRequestMessage(HttpMethod.Post, url);
+            request.Headers.Add("Accept", "application/vnd.github+json");
+            request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+            request.Headers.Add("Authorization", "Bearer " + ghToken);
+            request.Headers.Add("User-Agent", "Manifest.report-triggerer");
+            request.Content = new StringContent(JsonSerializer.Serialize(new { event_type = "deploy", client_payload = new { message = "New manifest version, generating new static site" } }), Encoding.UTF8, "application/json");
+
+            var res = await httpClient.SendAsync(request);
+            if(res.IsSuccessStatusCode)
+            {
+                logger.LogInformation("site.manifest.report generation triggered!");
+                _context?.WriteLine("site.manifest.report generation triggered!");
+            }
+            else
+            {
+                logger.LogError("Failed to trigger site.manifest.report generation!");
+                _context?.WriteLine("Failed to trigger site.manifest.report generation!");
+            }
         }
 
         async Task<List<S3Object>> FetchAllVersionFiles(Guid version)
