@@ -3,6 +3,7 @@
     public class FileDiff
     {
         public string FileName { get; set; }
+        public string EnhancedFileName { get; set; }
         public int Added { get; set; }
         public int Modified { get; set; }
         public int Unclassified { get; set; }

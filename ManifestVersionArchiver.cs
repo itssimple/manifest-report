@@ -341,6 +341,7 @@ namespace Manifest.Report
                     changes.Add(new FileDiff()
                     {
                         FileName = diffFile,
+                        EnhancedFileName = $"/manifest-archive/versions/{newVersion.VersionId.ToString()}/diffFiles/{diffFile.Split('/').Last()}",
                         Added = formatter.Changes.Added.Count,
                         Modified = formatter.Changes.Modified.Count - formatter.Changes.Unclassified.Count - formatter.Changes.Reclassified.Count - formatter.Changes.Added.Count - formatter.Changes.Removed.Count,
                         Unclassified = formatter.Changes.Unclassified.Count,
