@@ -25,7 +25,7 @@ var redis = ConnectionMultiplexer.Connect(redisHost);
 builder.Services.AddHttpClient("Bungie", config =>
 {
     config.DefaultRequestHeaders.Add("X-API-Key", bungieApiKey);
-    config.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Manifest Report/1.0 AppId/53354");
+    config.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "Manifest Report/1.0 AppId/53354 (+site.manifest.report;manifest-report@itssimple.se)");
 });
 #if !DEBUG
 builder.Services.AddHangfire(config =>
