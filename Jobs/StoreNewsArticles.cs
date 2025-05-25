@@ -11,6 +11,8 @@ namespace Manifest.Report.Jobs
     {
         private HttpClient httpClient;
 
+        static JsonSerializerOptions jsOptions = new JsonSerializerOptions { WriteIndented = true }
+
         public async Task FetchAndStoreNewsArticles(PerformContext context)
         {
             httpClient = httpClientFactory.CreateClient("Bungie");
@@ -34,7 +36,7 @@ namespace Manifest.Report.Jobs
                         {
                             BucketName = "manifest-archive",
                             Key = newsKey,
-                            ContentBody = JsonSerializer.Serialize(item, new JsonSerializerOptions { WriteIndented = true })
+                            ContentBody = JsonSerializer.Serialize(item, jsOptions)
                         });
                     }
                 }
