@@ -103,6 +103,7 @@ app.UseHangfireDashboard("/hangfire", new DashboardOptions
 });
 
 RecurringJob.AddOrUpdate<ManifestCheckJob>("manifest:checknew", x => x.CheckManifest(null), "*/10 * * * *");
+RecurringJob.AddOrUpdate<StoreNewsArticles>("manifest:checknews", x => x.FetchAndStoreNewsArticles(null), "*/10 * * * *");
 #endif
 
 app.UseRouting();
