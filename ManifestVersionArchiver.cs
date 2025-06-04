@@ -374,9 +374,6 @@ public partial class ManifestVersionArchiver(
 
             foreach (var image in foundImages)
             {
-                var trimmedImage = image.TrimStart('/');
-                var s3Key = $"images/{trimmedImage}";
-                if (await CheckIfFileExists("manifest-archive", s3Key)) continue;
                 if (!allImages.Contains(image))
                     allImages.Add(image);
             }
