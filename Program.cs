@@ -8,6 +8,8 @@ using Hangfire.Redis.StackExchange;
 using Manifest.Report.Jobs;
 #endif
 using Manifest.Report;
+using Manifest.Report.Classes;
+using Microsoft.Data.SqlClient;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -18,6 +20,8 @@ string hangfireUser = builder.Configuration["Hangfire:User"] ?? "local";
 string hangfirePassword = builder.Configuration["Hangfire:Password"] ?? "host";
 
 string bungieApiKey = builder.Configuration["Bungie:ApiKey"] ?? string.Empty;
+
+string dbConnectionString = builder.Configuration["Database:ConnectionString"] ?? string.Empty;
 
 var redisHost = builder.Configuration["Redis:Host"] ?? "127.0.0.1:6739";
 var redis = ConnectionMultiplexer.Connect(redisHost);
@@ -56,6 +60,9 @@ builder.Services.AddScoped(config =>
     return new AmazonS3Client(accessKey, secretKey, s3Config);
 });
 
+builder.Services.AddScoped(x => new SqlConnection(dbConnectionString));
+builder.Services.AddScoped<MSSQLDB>();
+
 builder.Services.AddScoped(config =>
 {
     return new ManifestVersionArchiver(
@@ -67,6 +74,7 @@ builder.Services.AddScoped(config =>
 });
 
 builder.Services.AddRazorPages();
+builder.Services.AddControllers();
 
 var app = builder.Build();
 
@@ -76,6 +84,8 @@ if (!app.Environment.IsDevelopment())
     app.UseExceptionHandler("/Error");
     app.UseHsts();
 }
+
+app.UseForwardedHeaders();
 
 app.UseHttpsRedirection();
 app.UseStaticFiles();
@@ -111,5 +121,7 @@ app.UseRouting();
 app.UseAuthorization();
 
 app.MapRazorPages();
+
+app.MapDefaultControllerRoute();
 
 app.Run();

@@ -13,5 +13,8 @@
   },
   "Bungie": {
     "APIKey": "<apikey>"
+  },
+  "Database": {
+    "ConnectionString": "<connectionstring>"
   }
 }
