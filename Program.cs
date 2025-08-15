@@ -26,6 +26,8 @@ string dbConnectionString = builder.Configuration["Database:ConnectionString"] ?
 var redisHost = builder.Configuration["Redis:Host"] ?? "127.0.0.1:6739";
 var redis = ConnectionMultiplexer.Connect(redisHost);
 
+builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
+
 builder.Services.AddHttpClient("Bungie", config =>
 {
     config.DefaultRequestHeaders.Add("X-API-Key", bungieApiKey);

@@ -1,6 +1,6 @@
 ﻿using System.Data;
 
-namespace Manifest.Report.Classes
+namespace Manifest.Report.Classes.DBClasses
 {
     public class DestinyDefinitionHashHistoryCollectionItem
     {
@@ -12,9 +12,9 @@ namespace Manifest.Report.Classes
             Definition = row.Field<string>("Definition");
             Hash = row.Field<long>("Hash");
             ManifestVersion = row.Field<Guid>("ManifestVersion");
-            DiscoveredUTC = row.Field<DateTime>("DiscoveredUTC");
+            DiscoveredUTC = row.Field<DateTimeOffset>("DiscoveredUTC");
             JSONContent = row.Field<string>("JSONContent");
-            JSONContent = row.Field<string>("JSONContent");
+            JSONDiff = row.Field<string>("JSONDiff");
             State = Enum.Parse<DefinitionHashChangeState>(row.Field<string>("State"));
         }
 
@@ -26,5 +26,16 @@ namespace Manifest.Report.Classes
         public string JSONContent { get; set; }
         public string JSONDiff { get; set; }
         public DefinitionHashChangeState State { get; set; }
+
+        public bool IsDirty { get; set; } = false;
+    }
+
+    public enum DefinitionHashChangeState
+    {
+        Added,
+        Modified,
+        Redacted,
+        Unredacted,
+        Deleted
     }
 }

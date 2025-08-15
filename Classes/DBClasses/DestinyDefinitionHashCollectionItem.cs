@@ -1,7 +1,7 @@
 ﻿using System.Data;
 using System.Text.Json;
 
-namespace Manifest.Report.Classes
+namespace Manifest.Report.Classes.DBClasses
 {
     public class DestinyDefinitionHashCollectionItem
     {
@@ -13,7 +13,7 @@ namespace Manifest.Report.Classes
             Definition = row.Field<string>("Definition");
             Hash = row.Field<long>("Hash");
             FirstDiscoveredUTC = row.Field<DateTimeOffset>("FirstDiscoveredUTC");
-            RemovedUTC = row.Field<DateTime?>("RemovedUTC");
+            RemovedUTC = row.Field<DateTimeOffset?>("RemovedUTC");
             DisplayName = row.Field<string>("DisplayName");
             DisplayIcon = row.Field<string>("DisplayIcon");
             InVersions = JsonSerializer.Deserialize<HashSet<Guid>>(row.Field<string>("InVersions")) ?? new HashSet<Guid>();
@@ -32,4 +32,5 @@ namespace Manifest.Report.Classes
 
         public bool IsDirty { get; set; } = false;
     }
+
 }
