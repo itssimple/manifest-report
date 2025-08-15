@@ -71,5 +71,58 @@ namespace Manifest.Report
 
             return Ok(jsonObject);
         }
+
+        [HttpGet("/search/name")]
+        public async Task<IActionResult> SearchByName(string name, int limit = 10, bool? includeData = false)
+        {
+            if (string.IsNullOrWhiteSpace(name) || limit <= 0)
+            {
+                return BadRequest("Invalid parameters.");
+            }
+
+            if (limit > 1000)
+            {
+                limit = 1000; // Cap the limit to a maximum of 1000
+            }
+
+            var sql = $@"
+                SELECT DISTINCT TOP {limit} *
+                FROM DefinitionHashes
+                WHERE DisplayName LIKE '%' + @name + '%'
+                ORDER BY FirstDiscoveredUTC DESC";
+            var parameters = new[]
+            {
+                new SqlParameter("name", name)
+            };
+
+            var results = await db.ExecuteListAsync<DestinyDefinitionHashCollectionItem>(sql, parameters);
+            if (results.Count == 0)
+            {
+                return NotFound(new
+                {
+                    error = new
+                    {
+                        code = 404,
+                        message = $"No definitions found matching '{name}'.",
+                    }
+                });
+            }
+
+            // Get total count to let users know how many results are available if they specify the name better
+            var countSql = "SELECT COUNT(DISTINCT Hash) FROM DefinitionHashes WHERE DisplayName LIKE '%' + @name + '%'";
+            var totalCount = await db.ExecuteScalarAsync<int>(countSql, new SqlParameter("name", name));
+
+            return Ok(new { 
+                data = results.Select(i => new { 
+                    i.Definition,
+                    i.Hash,
+                    i.DisplayName,
+                    i.DisplayIcon,
+                    Data = includeData ?? false ? JsonSerializer.Deserialize<JsonNode>(i.JSONContent) : null
+                }),
+                totalCount,
+                __help = "If you want to change how many results you can view, add limit as a query parameter (min 1, max 1000), and if you want to include the data, add includeData=true into the query"
+            });
+        }
     }
 }
