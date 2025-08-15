@@ -25,7 +25,7 @@ namespace Manifest.Report
             var cacheKey = $"definition:{definition}:{hash}:{includeHistory ?? false}";
             var cache = connectionMultiplexer.GetDatabase();
             var cachedJson = await cache.StringGetAsync(cacheKey);
-            if (cachedJson.HasValue)
+            if (cachedJson.HasValue && !string.IsNullOrWhiteSpace(cachedJson))
             {
                 var cachedJsonContent = JsonSerializer.Deserialize<JsonNode>(cachedJson!);
                 return Ok(cachedJsonContent);
