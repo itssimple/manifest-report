@@ -143,7 +143,7 @@ namespace Manifest.Report
             var sql = $@"
                 SELECT DISTINCT TOP {limit} *
                 FROM DefinitionHashes
-                WHERE Hash = @name
+                WHERE Hash = @hash
                 ORDER BY FirstDiscoveredUTC DESC";
             var parameters = new[]
             {
