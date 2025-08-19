@@ -109,7 +109,7 @@ namespace Manifest.Report
             }
 
             // Get total count to let users know how many results are available if they specify the name better
-            var countSql = "SELECT COUNT(DISTINCT Hash) FROM DefinitionHashes WHERE DisplayName LIKE '%' + @name + '%'";
+            var countSql = "SELECT COUNT(Hash) FROM DefinitionHashes WHERE DisplayName LIKE '%' + @name + '%'";
             var totalCount = await db.ExecuteScalarAsync<int>(countSql, new SqlParameter("name", name));
 
             return Ok(new
@@ -164,7 +164,7 @@ namespace Manifest.Report
             }
 
             // Get total count to let users know how many results are available if they specify the name better
-            var countSql = "SELECT COUNT(DISTINCT Hash) FROM DefinitionHashes WHERE Hash = @hash";
+            var countSql = "SELECT COUNT(Hash) FROM DefinitionHashes WHERE Hash = @hash";
             var totalCount = await db.ExecuteScalarAsync<int>(countSql, new SqlParameter("hash", hash));
 
             return Ok(new
