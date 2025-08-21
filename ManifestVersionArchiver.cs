@@ -87,8 +87,6 @@ public partial class ManifestVersionArchiver(
 
             logger.LogInformation("New manifest version found: {Version}", currentManifestVersion);
             _context?.WriteLine($"New manifest version found: {currentManifestVersion}");
-
-            BackgroundJob.Enqueue(() => diffStore.StoreDiffs(null));
             return true;
         }
 
@@ -351,6 +349,8 @@ public partial class ManifestVersionArchiver(
                 nextIndex++;
             }
         }
+
+        BackgroundJob.Enqueue(() => diffStore.StoreDiffs(null));
     }
 
     private async Task<bool> CheckIfFileExists(string bucketName, string key)
