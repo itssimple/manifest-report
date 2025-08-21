@@ -29,13 +29,4 @@ namespace Manifest.Report.Classes.DBClasses
 
         public bool IsDirty { get; set; } = false;
     }
-
-    public enum DefinitionHashChangeState
-    {
-        Added,
-        Modified,
-        Redacted,
-        Unredacted,
-        Deleted
-    }
 }

@@ -1,5 +1,4 @@
-﻿using Amazon.S3;
-using Hangfire.Server;
+﻿using Hangfire.Server;
 
 namespace Manifest.Report.Jobs
 {

@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
 	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
+		<TargetFramework>net9.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<RootNamespace>Manifest.Report</RootNamespace>
@@ -13,9 +13,9 @@
 
 	<ItemGroup>
 		<PackageReference Include="AWSSDK.S3" Version="3.7.411.3" />
-		<PackageReference Include="Hangfire.AspNetCore" Version="1.8.17" />
+		<PackageReference Include="Hangfire.AspNetCore" Version="1.8.21" />
 		<PackageReference Include="Hangfire.Console" Version="1.4.3" />
-		<PackageReference Include="Hangfire.Redis.StackExchange" Version="1.9.4" />
+		<PackageReference Include="Hangfire.Redis.StackExchange" Version="1.12.0" />
 		<PackageReference Include="Hangfire.Dashboard.BasicAuthorization" Version="1.0.2" />
 		<PackageReference Include="Microsoft.Data.SqlClient" Version="6.0.2" />
 		<PackageReference Include="SystemTextJson.JsonDiffPatch" Version="2.0.0" />

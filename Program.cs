@@ -10,6 +10,7 @@ using Manifest.Report.Jobs;
 using Manifest.Report;
 using Manifest.Report.Classes;
 using Microsoft.Data.SqlClient;
+using Microsoft.Extensions.DependencyInjection;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -67,10 +68,21 @@ builder.Services.AddScoped<MSSQLDB>();
 
 builder.Services.AddScoped(config =>
 {
+    return new StoreManifestDiffs(
+        config.GetRequiredService<ILogger<StoreManifestDiffs>>(),
+        config.GetRequiredService<AmazonS3Client>(),
+        config.GetRequiredService<MSSQLDB>(),
+        config
+    );
+});
+
+builder.Services.AddScoped(config =>
+{
     return new ManifestVersionArchiver(
         config.GetRequiredService<ILogger<ManifestVersionArchiver>>(),
         config.GetRequiredService<IHttpClientFactory>(),
         config.GetRequiredService<AmazonS3Client>(),
+        config.GetRequiredService<StoreManifestDiffs>(),
         builder.Configuration["GHToken"]
     );
 });

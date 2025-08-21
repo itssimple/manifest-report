@@ -8,6 +8,7 @@ using System.Text.RegularExpressions;
 using Amazon.S3;
 using Amazon.S3.Model;
 using Amazon.S3.Transfer;
+using Hangfire;
 using Hangfire.Console;
 using Hangfire.Server;
 using Manifest.Report.Classes;
@@ -18,6 +19,7 @@ public partial class ManifestVersionArchiver(
     ILogger<ManifestVersionArchiver> logger,
     IHttpClientFactory httpClientFactory,
     AmazonS3Client s3Client,
+    StoreManifestDiffs diffStore,
     string ghToken)
 {
     public const string RootUrl = "https://www.bungie.net";
@@ -82,6 +84,11 @@ public partial class ManifestVersionArchiver(
         if (currentManifestVersion != previousManifestVersion)
         {
             await SaveManifest(currentManifestVersion, manifest.Response);
+
+            logger.LogInformation("New manifest version found: {Version}", currentManifestVersion);
+            _context?.WriteLine($"New manifest version found: {currentManifestVersion}");
+
+            BackgroundJob.Enqueue(() => diffStore.StoreDiffs(null));
             return true;
         }
 
@@ -294,7 +301,7 @@ public partial class ManifestVersionArchiver(
         var allImages = new BlockingCollection<string>();
 
         await FetchImagesFromManifest(newVersion, allImages);
-        
+
         var nextIndex = 0;
 
         while (fetchTasks.Count > 0)
@@ -611,12 +618,12 @@ public partial class ManifestVersionArchiver(
             }).ToList();
 
         var joined = from curr in currentExceptIgnored
-            join prev in previousExceptIgnored on curr.File equals prev.File
-            select new
-            {
-                Curr = curr,
-                Prev = prev
-            };
+                     join prev in previousExceptIgnored on curr.File equals prev.File
+                     select new
+                     {
+                         Curr = curr,
+                         Prev = prev
+                     };
 
         return joined /*.Where(f => f.Curr.ETag != f.Prev.ETag || f.Curr.Size != f.Prev.Size)*/.Select(s => s.Curr.File)
             .ToList();

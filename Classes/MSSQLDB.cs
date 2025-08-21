@@ -14,14 +14,29 @@ namespace Manifest.Report.Classes
 
         public async Task<SqlDataReader> ExecuteReader(string sql, params SqlParameter[] parameters)
         {
-            await EnsureConnected();
+            await EnsureConnectedAsync();
             var command = GetCommandWithParams(sql, parameters);
             return command.ExecuteReader(CommandBehavior.SequentialAccess);
         }
 
         public async Task<DataTable> ExecuteDataTableAsync(string sql, params SqlParameter[] parameters)
         {
-            await EnsureConnected();
+            await EnsureConnectedAsync();
+            var command = GetCommandWithParams(sql, parameters);
+
+            using (var da = new SqlDataAdapter(command))
+            {
+                DataTable dt = new DataTable();
+
+                da.Fill(dt);
+
+                return dt;
+            }
+        }
+
+        public DataTable ExecuteDataTable(string sql, params SqlParameter[] parameters)
+        {
+            EnsureConnected();
             var command = GetCommandWithParams(sql, parameters);
 
             using (var da = new SqlDataAdapter(command))
@@ -49,6 +64,21 @@ namespace Manifest.Report.Classes
             return items;
         }
 
+        public List<T> ExecuteList<T>(string sql, params SqlParameter[] parameters)
+        {
+            var dt = ExecuteDataTable(sql, parameters);
+
+            List<T> items = new List<T>();
+
+            foreach (DataRow row in dt.Rows)
+            {
+                T item = (T)Activator.CreateInstance(typeof(T), row);
+                items.Add(item);
+            }
+
+            return items;
+        }
+
         public async Task<T> ExecuteSingleRowAsync<T>(string sql, params SqlParameter[] parameters)
         {
             var rows = await ExecuteListAsync<T>(sql, parameters);
@@ -56,17 +86,32 @@ namespace Manifest.Report.Classes
             return rows.FirstOrDefault();
         }
 
+        public T ExecuteSingleRow<T>(string sql, params SqlParameter[] parameters)
+        {
+            var rows = ExecuteList<T>(sql, parameters);
+
+            return rows.FirstOrDefault();
+        }
+
         public async Task<int> ExecuteNonQueryAsync(string sql, params SqlParameter[] parameters)
         {
-            await EnsureConnected();
+            await EnsureConnectedAsync();
             var command = GetCommandWithParams(sql, parameters);
 
             return await command.ExecuteNonQueryAsync();
         }
 
+        public int ExecuteNonQuery(string sql, params SqlParameter[] parameters)
+        {
+            EnsureConnected();
+            var command = GetCommandWithParams(sql, parameters);
+
+            return command.ExecuteNonQuery();
+        }
+
         public async Task<T> ExecuteScalarAsync<T>(string sql, params SqlParameter[] parameters)
         {
-            await EnsureConnected();
+            await EnsureConnectedAsync();
             var command = GetCommandWithParams(sql, parameters);
 
             var retValue = await command.ExecuteScalarAsync();
@@ -87,11 +132,19 @@ namespace Manifest.Report.Classes
             return command;
         }
 
-        private async Task EnsureConnected()
+        private async Task EnsureConnectedAsync()
         {
             if (_connection.State == ConnectionState.Closed)
             {
                 await _connection.OpenAsync();
+            }
+        }
+
+        private void EnsureConnected()
+        {
+            if (_connection.State == ConnectionState.Closed)
+            {
+                _connection.Open();
             }
         }
 
