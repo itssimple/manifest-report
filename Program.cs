@@ -43,7 +43,8 @@ builder.Services.AddHangfire(config =>
         .UseRedisStorage(redis, new RedisStorageOptions
         {
             Db = 8,
-            Prefix = "manifest-report:"
+            Prefix = "manifest-report:",
+            InvisibilityTimeout = TimeSpan.FromHours(6)
         })
         .UseConsole();
 });
