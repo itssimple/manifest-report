@@ -226,7 +226,7 @@ namespace Manifest.Report
 
         public void SaveFromQueue()
         {
-            const int batchSize = 200;
+            const int batchSize = 5000;
 
             using var conn = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<SqlConnection>();
             while (!SaveBreak)
@@ -244,6 +244,8 @@ namespace Manifest.Report
                 {
                     if (SaveItems.TryDequeue(out var item))
                     {
+                        if(item == null) continue;
+
                         if (item.HashCollectionId == 0)
                             insertItems.Add(item);
                         else
@@ -280,6 +282,7 @@ namespace Manifest.Report
 
                     using (var bulk = new SqlBulkCopy(conn))
                     {
+                        bulk.BulkCopyTimeout = 3600;
                         bulk.DestinationTableName = "DefinitionHashes";
                         bulk.ColumnMappings.Add("Definition", "Definition");
                         bulk.ColumnMappings.Add("Hash", "Hash");
@@ -342,6 +345,7 @@ namespace Manifest.Report
 
                     using (var bulk = new SqlBulkCopy(conn))
                     {
+                        bulk.BulkCopyTimeout = 3600;
                         bulk.DestinationTableName = tempTable;
                         bulk.ColumnMappings.Add("HashCollectionId", "HashCollectionId");
                         bulk.ColumnMappings.Add("Definition", "Definition");
@@ -385,6 +389,8 @@ namespace Manifest.Report
                 {
                     if (SaveHistoryItems.TryDequeue(out var item))
                     {
+                        if (item == null) continue;
+
                         if (item.HistoryId == 0)
                             insertHistory.Add(item);
                         else
@@ -419,6 +425,7 @@ namespace Manifest.Report
 
                     using (var bulk = new SqlBulkCopy(conn))
                     {
+                        bulk.BulkCopyTimeout = 3600;
                         bulk.DestinationTableName = "DefinitionHashHistory";
                         bulk.ColumnMappings.Add("Definition", "Definition");
                         bulk.ColumnMappings.Add("Hash", "Hash");
@@ -477,6 +484,7 @@ namespace Manifest.Report
 
                     using (var bulk = new SqlBulkCopy(conn))
                     {
+                        bulk.BulkCopyTimeout = 3600;
                         bulk.DestinationTableName = tempTable;
                         bulk.ColumnMappings.Add("HistoryId", "HistoryId");
                         bulk.ColumnMappings.Add("Definition", "Definition");
@@ -509,7 +517,7 @@ namespace Manifest.Report
                     }
                 }
 
-                Thread.Sleep(5000);
+                //Thread.Sleep(5000);
             }
         }
 
