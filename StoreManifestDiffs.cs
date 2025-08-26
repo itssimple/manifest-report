@@ -136,13 +136,17 @@ namespace Manifest.Report
             return files;
         }
 
+        static HashSet<DestinyDefinitionHashCollectionItem> AllHashesForDefinition = null;
+
         public static DestinyDefinitionHashCollectionItem GetOrCreateItem(MSSQLDB db, string Definition, long Hash)
         {
-            var existingItem = db.ExecuteSingleRow<DestinyDefinitionHashCollectionItem>(
-                "SELECT * FROM DefinitionHashes WHERE Definition = @definition AND Hash = @hash",
-                new SqlParameter("definition", Definition),
-                new SqlParameter("hash", Hash)
-            );
+            if (AllHashesForDefinition == null)
+            {
+                var sql = "SELECT * FROM DefinitionHashes WHERE Definition = @definition";
+                AllHashesForDefinition = db.ExecuteList<DestinyDefinitionHashCollectionItem>(sql, new SqlParameter("definition", Definition)).ToHashSet();
+            }
+
+            var existingItem = AllHashesForDefinition.FirstOrDefault(ahfd => ahfd.Definition == Definition && ahfd.Hash == Hash);
 
             if (existingItem != null) return existingItem;
 
@@ -156,14 +160,26 @@ namespace Manifest.Report
             return existingItem;
         }
 
+        static HashSet<DestinyDefinitionHashHistoryCollectionItem> AllHashesForDefinitionVersion = null;
+
         public static DestinyDefinitionHashHistoryCollectionItem GetOrCreateHistoryItem(MSSQLDB db, Guid versionId, string Definition, long Hash)
         {
-            var existingItem = db.ExecuteSingleRow<DestinyDefinitionHashHistoryCollectionItem>(
-                "SELECT * FROM DefinitionHashHistory WHERE ManifestVersion = @version AND Definition = @definition AND Hash = @hash",
-                new SqlParameter("version", versionId),
-                new SqlParameter("definition", Definition),
-                new SqlParameter("hash", Hash)
-            );
+            if (AllHashesForDefinitionVersion == null)
+            {
+                var sql = "SELECT * FROM DefinitionHashHistory WHERE Definition = @definition AND ManifestVersion = @version";
+                AllHashesForDefinitionVersion = db.ExecuteList<DestinyDefinitionHashHistoryCollectionItem>(
+                    sql,
+                    new SqlParameter("definition", Definition),
+                    new SqlParameter("version", versionId)
+                ).ToHashSet();
+            }
+
+            var existingItem = AllHashesForDefinitionVersion
+                .FirstOrDefault(ahfdv =>
+                    ahfdv.Definition == Definition
+                    && ahfdv.ManifestVersion == versionId
+                    && ahfdv.Hash == Hash
+                );
 
             if (existingItem != null) return existingItem;
 
@@ -210,99 +226,290 @@ namespace Manifest.Report
 
         public void SaveFromQueue()
         {
-            using (var db = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<MSSQLDB>())
+            const int batchSize = 200;
+
+            using var conn = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<SqlConnection>();
+            while (!SaveBreak)
             {
-                while (!SaveBreak)
+                if (!conn.State.HasFlag(ConnectionState.Open))
                 {
-                    while (SaveItems.Count > 0)
-                    {
-                        if (SaveItems.TryDequeue(out var _item))
-                        {
-                            string sql = string.Empty;
-                            if (_item.HashCollectionId == 0)
-                            {
-                                sql = @"INSERT INTO DefinitionHashes (Definition, Hash, FirstDiscoveredUTC, RemovedUTC, DisplayName, DisplayIcon, InVersions, JSONContent)
-VALUES
-(@Definition, @Hash, @FirstDiscoveredUTC, @RemovedUTC, @DisplayName, @DisplayIcon, @InVersions, @JSONContent);";
-                            }
-                            else
-                            {
-                                sql = @"UPDATE DefinitionHashes
-SET FirstDiscoveredUTC = @FirstDiscoveredUTC,
-RemovedUTC = @RemovedUTC,
-DisplayName = @DisplayName,
-DisplayIcon = @DisplayIcon,
-InVersions = @InVersions,
-JSONContent = @JSONContent
-WHERE Definition = @Definition
-AND Hash = @Hash
-AND HashCollectionId = @HashCollectionId";
-                            }
-
-                            db.ExecuteNonQuery(sql,
-                                new SqlParameter("HashCollectionId", _item.HashCollectionId),
-                                new SqlParameter("Definition", _item.Definition),
-                                new SqlParameter("Hash", _item.Hash),
-                                new SqlParameter("FirstDiscoveredUTC", _item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue),
-                                _item.RemovedUTC.HasValue ?
-                                    new SqlParameter("RemovedUTC", _item.RemovedUTC) :
-                                    new SqlParameter("RemovedUTC", SqlDbType.DateTimeOffset) { IsNullable = true, SqlValue = DBNull.Value },
-                                !string.IsNullOrWhiteSpace(_item.DisplayName) ?
-                                    new SqlParameter("DisplayName", _item.DisplayName) :
-                                    new SqlParameter("DisplayName", SqlDbType.NVarChar) { IsNullable = true, SqlValue = DBNull.Value },
-                                !string.IsNullOrWhiteSpace(_item.DisplayIcon) ?
-                                    new SqlParameter("DisplayIcon", _item.DisplayIcon) :
-                                    new SqlParameter("DisplayIcon", SqlDbType.NVarChar) { IsNullable = true, SqlValue = DBNull.Value },
-                                new SqlParameter("InVersions", JsonSerializer.Serialize(_item.InVersions)),
-                                !string.IsNullOrWhiteSpace(_item.JSONContent) ?
-                                    new SqlParameter("JSONContent", _item.JSONContent) :
-                                    new SqlParameter("JSONContent", SqlDbType.NVarChar) { IsNullable = true, SqlValue = DBNull.Value }
-                            );
-                        }
-                    }
-
-                    while (SaveHistoryItems.Count > 0)
-                    {
-                        if (SaveHistoryItems.TryDequeue(out var _item))
-                        {
-                            string sql = string.Empty;
-                            if (_item.HistoryId == 0)
-                            {
-                                sql = @"INSERT INTO DefinitionHashHistory (Definition, Hash, ManifestVersion, DiscoveredUTC, JSONContent, JSONDiff, State)
-VALUES
-(@Definition, @Hash, @ManifestVersion, @DiscoveredUTC, @JSONContent, @JSONDiff, @State);";
-                            }
-                            else
-                            {
-                                sql = @"UPDATE DefinitionHashHistory
-SET DiscoveredUTC = @DiscoveredUTC,
-JSONContent = @JSONContent,
-JSONDiff = @JSONDiff,
-State = @State
-WHERE Definition = @Definition
-AND Hash = @Hash
-AND HistoryId = @HistoryId";
-                            }
-
-                            db.ExecuteNonQuery(sql,
-                                new SqlParameter("HistoryId", _item.HistoryId),
-                                new SqlParameter("Definition", _item.Definition),
-                                new SqlParameter("Hash", _item.Hash),
-                                new SqlParameter("ManifestVersion", _item.ManifestVersion),
-                                new SqlParameter("DiscoveredUTC", _item.DiscoveredUTC),
-                                !string.IsNullOrWhiteSpace(_item.JSONContent) ?
-                                    new SqlParameter("JSONContent", _item.JSONContent) :
-                                    new SqlParameter("JSONContent", SqlDbType.NVarChar) { IsNullable = true, SqlValue = DBNull.Value },
-                                !string.IsNullOrWhiteSpace(_item.JSONDiff) ?
-                                    new SqlParameter("JSONDiff", _item.JSONDiff) :
-                                    new SqlParameter("JSONDiff", SqlDbType.NVarChar) { IsNullable = true, SqlValue = DBNull.Value },
-                                new SqlParameter("State", _item.State.ToString())
-                            );
-                        }
-                    }
-
-                    Thread.Sleep(5000);
+                    conn.Open();
                 }
+
+                // --- Batch INSERT/UPDATE for DefinitionHashes ---
+                var insertItems = new List<DestinyDefinitionHashCollectionItem>();
+                var updateItems = new List<DestinyDefinitionHashCollectionItem>();
+
+                while (SaveItems.Count > 0 && (insertItems.Count + updateItems.Count) < batchSize)
+                {
+                    if (SaveItems.TryDequeue(out var item))
+                    {
+                        if (item.HashCollectionId == 0)
+                            insertItems.Add(item);
+                        else
+                            updateItems.Add(item);
+                    }
+                }
+
+                // Batch Insert
+                if (insertItems.Count > 0)
+                {
+                    var dt = new DataTable();
+                    dt.Columns.Add("Definition", typeof(string));
+                    dt.Columns.Add("Hash", typeof(long));
+                    dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
+                    dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
+                    dt.Columns.Add("DisplayName", typeof(string));
+                    dt.Columns.Add("DisplayIcon", typeof(string));
+                    dt.Columns.Add("InVersions", typeof(string));
+                    dt.Columns.Add("JSONContent", typeof(string));
+
+                    foreach (var item in insertItems)
+                    {
+                        dt.Rows.Add(
+                            item.Definition,
+                            item.Hash,
+                            item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
+                            item.RemovedUTC ?? (object)DBNull.Value,
+                            string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
+                            string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
+                            JsonSerializer.Serialize(item.InVersions),
+                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent
+                        );
+                    }
+
+                    using (var bulk = new SqlBulkCopy(conn))
+                    {
+                        bulk.DestinationTableName = "DefinitionHashes";
+                        bulk.ColumnMappings.Add("Definition", "Definition");
+                        bulk.ColumnMappings.Add("Hash", "Hash");
+                        bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
+                        bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
+                        bulk.ColumnMappings.Add("DisplayName", "DisplayName");
+                        bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
+                        bulk.ColumnMappings.Add("InVersions", "InVersions");
+                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                        bulk.WriteToServer(dt);
+                    }
+                }
+
+                // Batch Update
+                if (updateItems.Count > 0)
+                {
+                    var tempTable = "#TempDefinitionHashes";
+                    var dt = new DataTable();
+                    dt.Columns.Add("HashCollectionId", typeof(long));
+                    dt.Columns.Add("Definition", typeof(string));
+                    dt.Columns.Add("Hash", typeof(long));
+                    dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
+                    dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
+                    dt.Columns.Add("DisplayName", typeof(string));
+                    dt.Columns.Add("DisplayIcon", typeof(string));
+                    dt.Columns.Add("InVersions", typeof(string));
+                    dt.Columns.Add("JSONContent", typeof(string));
+
+                    foreach (var item in updateItems)
+                    {
+                        dt.Rows.Add(
+                            item.HashCollectionId,
+                            item.Definition,
+                            item.Hash,
+                            item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
+                            item.RemovedUTC ?? (object)DBNull.Value,
+                            string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
+                            string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
+                            JsonSerializer.Serialize(item.InVersions),
+                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent
+                        );
+                    }
+
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = $@"
+                        CREATE TABLE {tempTable} (
+                            HashCollectionId BIGINT,
+                            Definition NVARCHAR(255),
+                            Hash BIGINT,
+                            FirstDiscoveredUTC DATETIMEOFFSET,
+                            RemovedUTC DATETIMEOFFSET NULL,
+                            DisplayName NVARCHAR(255) NULL,
+                            DisplayIcon NVARCHAR(255) NULL,
+                            InVersions NVARCHAR(MAX) NULL,
+                            JSONContent NVARCHAR(MAX) NULL
+                        );";
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    using (var bulk = new SqlBulkCopy(conn))
+                    {
+                        bulk.DestinationTableName = tempTable;
+                        bulk.ColumnMappings.Add("HashCollectionId", "HashCollectionId");
+                        bulk.ColumnMappings.Add("Definition", "Definition");
+                        bulk.ColumnMappings.Add("Hash", "Hash");
+                        bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
+                        bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
+                        bulk.ColumnMappings.Add("DisplayName", "DisplayName");
+                        bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
+                        bulk.ColumnMappings.Add("InVersions", "InVersions");
+                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                        bulk.WriteToServer(dt);
+                    }
+
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = $@"
+                        UPDATE dh
+                        SET
+                            dh.FirstDiscoveredUTC = t.FirstDiscoveredUTC,
+                            dh.RemovedUTC = t.RemovedUTC,
+                            dh.DisplayName = t.DisplayName,
+                            dh.DisplayIcon = t.DisplayIcon,
+                            dh.InVersions = t.InVersions,
+                            dh.JSONContent = t.JSONContent
+                        FROM DefinitionHashes dh
+                        INNER JOIN {tempTable} t
+                            ON dh.HashCollectionId = t.HashCollectionId
+                            AND dh.Definition = t.Definition
+                            AND dh.Hash = t.Hash;
+
+                        DROP TABLE {tempTable};";
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                // --- Batch INSERT/UPDATE for DefinitionHashHistory ---
+                var insertHistory = new List<DestinyDefinitionHashHistoryCollectionItem>();
+                var updateHistory = new List<DestinyDefinitionHashHistoryCollectionItem>();
+
+                while (SaveHistoryItems.Count > 0 && (insertHistory.Count + updateHistory.Count) < batchSize)
+                {
+                    if (SaveHistoryItems.TryDequeue(out var item))
+                    {
+                        if (item.HistoryId == 0)
+                            insertHistory.Add(item);
+                        else
+                            updateHistory.Add(item);
+                    }
+                }
+
+                // Batch Insert
+                if (insertHistory.Count > 0)
+                {
+                    var dt = new DataTable();
+                    dt.Columns.Add("Definition", typeof(string));
+                    dt.Columns.Add("Hash", typeof(long));
+                    dt.Columns.Add("ManifestVersion", typeof(Guid));
+                    dt.Columns.Add("DiscoveredUTC", typeof(DateTimeOffset));
+                    dt.Columns.Add("JSONContent", typeof(string));
+                    dt.Columns.Add("JSONDiff", typeof(string));
+                    dt.Columns.Add("State", typeof(string));
+
+                    foreach (var item in insertHistory)
+                    {
+                        dt.Rows.Add(
+                            item.Definition,
+                            item.Hash,
+                            item.ManifestVersion,
+                            item.DiscoveredUTC,
+                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent,
+                            string.IsNullOrWhiteSpace(item.JSONDiff) ? (object)DBNull.Value : item.JSONDiff,
+                            item.State.ToString()
+                        );
+                    }
+
+                    using (var bulk = new SqlBulkCopy(conn))
+                    {
+                        bulk.DestinationTableName = "DefinitionHashHistory";
+                        bulk.ColumnMappings.Add("Definition", "Definition");
+                        bulk.ColumnMappings.Add("Hash", "Hash");
+                        bulk.ColumnMappings.Add("ManifestVersion", "ManifestVersion");
+                        bulk.ColumnMappings.Add("DiscoveredUTC", "DiscoveredUTC");
+                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                        bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
+                        bulk.ColumnMappings.Add("State", "State");
+                        bulk.WriteToServer(dt);
+                    }
+                }
+
+                // Batch Update
+                if (updateHistory.Count > 0)
+                {
+                    var tempTable = "#TempDefinitionHashHistory";
+                    var dt = new DataTable();
+                    dt.Columns.Add("HistoryId", typeof(long));
+                    dt.Columns.Add("Definition", typeof(string));
+                    dt.Columns.Add("Hash", typeof(long));
+                    dt.Columns.Add("ManifestVersion", typeof(Guid));
+                    dt.Columns.Add("DiscoveredUTC", typeof(DateTimeOffset));
+                    dt.Columns.Add("JSONContent", typeof(string));
+                    dt.Columns.Add("JSONDiff", typeof(string));
+                    dt.Columns.Add("State", typeof(string));
+
+                    foreach (var item in updateHistory)
+                    {
+                        dt.Rows.Add(
+                            item.HistoryId,
+                            item.Definition,
+                            item.Hash,
+                            item.ManifestVersion,
+                            item.DiscoveredUTC,
+                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent,
+                            string.IsNullOrWhiteSpace(item.JSONDiff) ? (object)DBNull.Value : item.JSONDiff,
+                            item.State.ToString()
+                        );
+                    }
+
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = $@"
+                        CREATE TABLE {tempTable} (
+                            HistoryId BIGINT,
+                            Definition NVARCHAR(255),
+                            Hash BIGINT,
+                            ManifestVersion UNIQUEIDENTIFIER,
+                            DiscoveredUTC DATETIMEOFFSET,
+                            JSONContent NVARCHAR(MAX) NULL,
+                            JSONDiff NVARCHAR(MAX) NULL,
+                            State NVARCHAR(50) NULL
+                        );";
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    using (var bulk = new SqlBulkCopy(conn))
+                    {
+                        bulk.DestinationTableName = tempTable;
+                        bulk.ColumnMappings.Add("HistoryId", "HistoryId");
+                        bulk.ColumnMappings.Add("Definition", "Definition");
+                        bulk.ColumnMappings.Add("Hash", "Hash");
+                        bulk.ColumnMappings.Add("ManifestVersion", "ManifestVersion");
+                        bulk.ColumnMappings.Add("DiscoveredUTC", "DiscoveredUTC");
+                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                        bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
+                        bulk.ColumnMappings.Add("State", "State");
+                        bulk.WriteToServer(dt);
+                    }
+
+                    using (var cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = $@"
+                        UPDATE dhh
+                        SET
+                            dhh.DiscoveredUTC = t.DiscoveredUTC,
+                            dhh.JSONContent = t.JSONContent,
+                            dhh.JSONDiff = t.JSONDiff,
+                            dhh.State = t.State
+                        FROM DefinitionHashHistory dhh
+                        INNER JOIN {tempTable} t
+                            ON dhh.HistoryId = t.HistoryId
+                            AND dhh.Definition = t.Definition
+                            AND dhh.Hash = t.Hash;
+
+                        DROP TABLE {tempTable};";
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                Thread.Sleep(5000);
             }
         }
 
@@ -328,6 +535,13 @@ AND HistoryId = @HistoryId";
 
                 formatter.PreviousDocument = prevJson;
                 formatter.CurrentDocument = currJson;
+
+                AllHashesForDefinition?.Clear();
+                AllHashesForDefinition = null;
+
+                AllHashesForDefinitionVersion?.Clear();
+                AllHashesForDefinitionVersion = null;
+
                 var diff = prevJson.Diff(currJson, formatter)!;
 
                 if (formatter.Changes.Changes > 0)
