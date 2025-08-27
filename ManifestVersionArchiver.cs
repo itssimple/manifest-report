@@ -350,7 +350,7 @@ public partial class ManifestVersionArchiver(
             }
         }
 
-        BackgroundJob.Enqueue(() => diffStore.StoreDiffs(null));
+        BackgroundJob.Enqueue(() => diffStore.StoreDiffs(null, JobCancellationToken.Null));
     }
 
     private async Task<bool> CheckIfFileExists(string bucketName, string key)
