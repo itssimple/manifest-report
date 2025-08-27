@@ -12,6 +12,7 @@ using Manifest.Report.Classes.DBClasses;
 using System.Text.Json.JsonDiffPatch;
 using Hangfire.Server;
 using Hangfire.Console;
+using Hangfire;
 
 namespace Manifest.Report
 {
@@ -28,10 +29,13 @@ namespace Manifest.Report
             _context?.WriteLine(message);
         }
 
-        public async Task StoreDiffs(PerformContext context)
+        static IJobCancellationToken _token;
+
+        public async Task StoreDiffs(PerformContext context, IJobCancellationToken jobCancellationToken)
         {
             Logger = logger;
             _context = context;
+            _token = jobCancellationToken;
 
             LogInformation("Starting to store manifest diffs...");
 
@@ -68,6 +72,8 @@ namespace Manifest.Report
 
             await reader.CloseAsync();
 
+            _token.ThrowIfCancellationRequested();
+
             if (lastDiscoveredUTC <= manifestList[0].DiscoverDate_UTC)
             {
                 LogInformation($"Processing first version: {manifestList[0].VersionId} with discover date {manifestList[0].DiscoverDate_UTC}");
@@ -77,6 +83,8 @@ namespace Manifest.Report
                 var firstAddedFiles = FindNewFiles([], firstVersionFiles, "versions/dummy", $"versions/{manifestList[0].VersionId}");
 
                 var firstChanges = await FindDiffsBetweenFiles(null, manifestList[0], [], [], firstVersionFiles, firstAddedFiles, []);
+
+                _token.ThrowIfCancellationRequested();
             }
 
             for (int i = 1; i < manifestList.Count; i++)
@@ -106,6 +114,8 @@ namespace Manifest.Report
 
                     lastDiscoveredUTC = newVersion.DiscoverDate_UTC;
                 }
+
+                _token.ThrowIfCancellationRequested();
             }
 
             SaveBreak = true;
@@ -227,108 +237,114 @@ namespace Manifest.Report
         public void SaveFromQueue()
         {
             const int batchSize = 1000;
+            const SqlBulkCopyOptions copyOptions = SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers;
 
             using var conn = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<SqlConnection>();
             while (!SaveBreak)
             {
-                if (!conn.State.HasFlag(ConnectionState.Open))
+                try
                 {
-                    conn.Open();
-                }
+                    _token.ThrowIfCancellationRequested();
 
-                // --- Batch INSERT/UPDATE for DefinitionHashes ---
-                var insertItems = new List<DestinyDefinitionHashCollectionItem>();
-                var updateItems = new List<DestinyDefinitionHashCollectionItem>();
-
-                while (SaveItems.Count > 0 && (insertItems.Count + updateItems.Count) < batchSize)
-                {
-                    if (SaveItems.TryDequeue(out var item))
+                    if (!conn.State.HasFlag(ConnectionState.Open))
                     {
-                        if (item == null) continue;
-
-                        if (item.HashCollectionId == 0)
-                            insertItems.Add(item);
-                        else
-                            updateItems.Add(item);
-                    }
-                }
-
-                // Batch Insert
-                if (insertItems.Count > 0)
-                {
-                    var dt = new DataTable();
-                    dt.Columns.Add("Definition", typeof(string));
-                    dt.Columns.Add("Hash", typeof(long));
-                    dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
-                    dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
-                    dt.Columns.Add("DisplayName", typeof(string));
-                    dt.Columns.Add("DisplayIcon", typeof(string));
-                    dt.Columns.Add("InVersions", typeof(string));
-                    dt.Columns.Add("JSONContent", typeof(string));
-
-                    foreach (var item in insertItems)
-                    {
-                        dt.Rows.Add(
-                            item.Definition,
-                            item.Hash,
-                            item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
-                            item.RemovedUTC ?? (object)DBNull.Value,
-                            string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
-                            string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
-                            JsonSerializer.Serialize(item.InVersions),
-                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent
-                        );
+                        conn.Open();
                     }
 
-                    using (var bulk = new SqlBulkCopy(conn))
-                    {
-                        bulk.BulkCopyTimeout = 3600;
-                        bulk.DestinationTableName = "DefinitionHashes";
-                        bulk.ColumnMappings.Add("Definition", "Definition");
-                        bulk.ColumnMappings.Add("Hash", "Hash");
-                        bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
-                        bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
-                        bulk.ColumnMappings.Add("DisplayName", "DisplayName");
-                        bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
-                        bulk.ColumnMappings.Add("InVersions", "InVersions");
-                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
-                        bulk.WriteToServer(dt);
-                    }
-                }
+                    // --- Batch INSERT/UPDATE for DefinitionHashes ---
+                    var insertItems = new List<DestinyDefinitionHashCollectionItem>();
+                    var updateItems = new List<DestinyDefinitionHashCollectionItem>();
 
-                // Batch Update
-                if (updateItems.Count > 0)
-                {
-                    var tempTable = "#TempDefinitionHashes";
-                    var dt = new DataTable();
-                    dt.Columns.Add("HashCollectionId", typeof(long));
-                    dt.Columns.Add("Definition", typeof(string));
-                    dt.Columns.Add("Hash", typeof(long));
-                    dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
-                    dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
-                    dt.Columns.Add("DisplayName", typeof(string));
-                    dt.Columns.Add("DisplayIcon", typeof(string));
-                    dt.Columns.Add("InVersions", typeof(string));
-                    dt.Columns.Add("JSONContent", typeof(string));
-
-                    foreach (var item in updateItems)
+                    while (SaveItems.Count > 0 && (insertItems.Count + updateItems.Count) < batchSize)
                     {
-                        dt.Rows.Add(
-                            item.HashCollectionId,
-                            item.Definition,
-                            item.Hash,
-                            item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
-                            item.RemovedUTC ?? (object)DBNull.Value,
-                            string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
-                            string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
-                            JsonSerializer.Serialize(item.InVersions),
-                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent
-                        );
+                        if (SaveItems.TryDequeue(out var item))
+                        {
+                            if (item == null) continue;
+
+                            if (item.HashCollectionId == 0)
+                                insertItems.Add(item);
+                            else
+                                updateItems.Add(item);
+                        }
                     }
 
-                    using (var cmd = conn.CreateCommand())
+                    // Batch Insert
+                    if (insertItems.Count > 0)
                     {
-                        cmd.CommandText = $@"
+                        var dt = new DataTable();
+                        dt.Columns.Add("Definition", typeof(string));
+                        dt.Columns.Add("Hash", typeof(long));
+                        dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("DisplayName", typeof(string));
+                        dt.Columns.Add("DisplayIcon", typeof(string));
+                        dt.Columns.Add("InVersions", typeof(string));
+                        dt.Columns.Add("JSONContent", typeof(string));
+
+                        foreach (var item in insertItems)
+                        {
+                            dt.Rows.Add(
+                                item.Definition,
+                                item.Hash,
+                                item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
+                                item.RemovedUTC ?? (object)DBNull.Value,
+                                string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
+                                string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
+                                JsonSerializer.Serialize(item.InVersions),
+                                string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent
+                            );
+                        }
+
+                        using (var transaction = conn.BeginTransaction())
+                        using (var bulk = new SqlBulkCopy(conn, copyOptions, transaction))
+                        {
+                            bulk.BulkCopyTimeout = 0;
+                            bulk.DestinationTableName = "DefinitionHashes";
+                            bulk.ColumnMappings.Add("Definition", "Definition");
+                            bulk.ColumnMappings.Add("Hash", "Hash");
+                            bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
+                            bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
+                            bulk.ColumnMappings.Add("DisplayName", "DisplayName");
+                            bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
+                            bulk.ColumnMappings.Add("InVersions", "InVersions");
+                            bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                            bulk.WriteToServer(dt);
+                        }
+                    }
+
+                    // Batch Update
+                    if (updateItems.Count > 0)
+                    {
+                        var tempTable = "#TempDefinitionHashes";
+                        var dt = new DataTable();
+                        dt.Columns.Add("HashCollectionId", typeof(long));
+                        dt.Columns.Add("Definition", typeof(string));
+                        dt.Columns.Add("Hash", typeof(long));
+                        dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("DisplayName", typeof(string));
+                        dt.Columns.Add("DisplayIcon", typeof(string));
+                        dt.Columns.Add("InVersions", typeof(string));
+                        dt.Columns.Add("JSONContent", typeof(string));
+
+                        foreach (var item in updateItems)
+                        {
+                            dt.Rows.Add(
+                                item.HashCollectionId,
+                                item.Definition,
+                                item.Hash,
+                                item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
+                                item.RemovedUTC ?? (object)DBNull.Value,
+                                string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
+                                string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
+                                JsonSerializer.Serialize(item.InVersions),
+                                string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent
+                            );
+                        }
+
+                        using (var cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = $@"
                         CREATE TABLE {tempTable} (
                             HashCollectionId BIGINT,
                             Definition NVARCHAR(255),
@@ -340,28 +356,29 @@ namespace Manifest.Report
                             InVersions NVARCHAR(MAX) NULL,
                             JSONContent NVARCHAR(MAX) NULL
                         );";
-                        cmd.ExecuteNonQuery();
-                    }
+                            cmd.ExecuteNonQuery();
+                        }
 
-                    using (var bulk = new SqlBulkCopy(conn))
-                    {
-                        bulk.BulkCopyTimeout = 3600;
-                        bulk.DestinationTableName = tempTable;
-                        bulk.ColumnMappings.Add("HashCollectionId", "HashCollectionId");
-                        bulk.ColumnMappings.Add("Definition", "Definition");
-                        bulk.ColumnMappings.Add("Hash", "Hash");
-                        bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
-                        bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
-                        bulk.ColumnMappings.Add("DisplayName", "DisplayName");
-                        bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
-                        bulk.ColumnMappings.Add("InVersions", "InVersions");
-                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
-                        bulk.WriteToServer(dt);
-                    }
+                        using (var transaction = conn.BeginTransaction())
+                        using (var bulk = new SqlBulkCopy(conn, copyOptions, transaction))
+                        {
+                            bulk.BulkCopyTimeout = 0;
+                            bulk.DestinationTableName = tempTable;
+                            bulk.ColumnMappings.Add("HashCollectionId", "HashCollectionId");
+                            bulk.ColumnMappings.Add("Definition", "Definition");
+                            bulk.ColumnMappings.Add("Hash", "Hash");
+                            bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
+                            bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
+                            bulk.ColumnMappings.Add("DisplayName", "DisplayName");
+                            bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
+                            bulk.ColumnMappings.Add("InVersions", "InVersions");
+                            bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                            bulk.WriteToServer(dt);
+                        }
 
-                    using (var cmd = conn.CreateCommand())
-                    {
-                        cmd.CommandText = $@"
+                        using (var cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = $@"
                         UPDATE dh
                         SET
                             dh.FirstDiscoveredUTC = t.FirstDiscoveredUTC,
@@ -377,98 +394,99 @@ namespace Manifest.Report
                             AND dh.Hash = t.Hash;
 
                         DROP TABLE {tempTable};";
-                        cmd.ExecuteNonQuery();
-                    }
-                }
-
-                // --- Batch INSERT/UPDATE for DefinitionHashHistory ---
-                var insertHistory = new List<DestinyDefinitionHashHistoryCollectionItem>();
-                var updateHistory = new List<DestinyDefinitionHashHistoryCollectionItem>();
-
-                while (SaveHistoryItems.Count > 0 && (insertHistory.Count + updateHistory.Count) < batchSize)
-                {
-                    if (SaveHistoryItems.TryDequeue(out var item))
-                    {
-                        if (item == null) continue;
-
-                        if (item.HistoryId == 0)
-                            insertHistory.Add(item);
-                        else
-                            updateHistory.Add(item);
-                    }
-                }
-
-                // Batch Insert
-                if (insertHistory.Count > 0)
-                {
-                    var dt = new DataTable();
-                    dt.Columns.Add("Definition", typeof(string));
-                    dt.Columns.Add("Hash", typeof(long));
-                    dt.Columns.Add("ManifestVersion", typeof(Guid));
-                    dt.Columns.Add("DiscoveredUTC", typeof(DateTimeOffset));
-                    dt.Columns.Add("JSONContent", typeof(string));
-                    dt.Columns.Add("JSONDiff", typeof(string));
-                    dt.Columns.Add("State", typeof(string));
-
-                    foreach (var item in insertHistory)
-                    {
-                        dt.Rows.Add(
-                            item.Definition,
-                            item.Hash,
-                            item.ManifestVersion,
-                            item.DiscoveredUTC,
-                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent,
-                            string.IsNullOrWhiteSpace(item.JSONDiff) ? (object)DBNull.Value : item.JSONDiff,
-                            item.State.ToString()
-                        );
+                            cmd.ExecuteNonQuery();
+                        }
                     }
 
-                    using (var bulk = new SqlBulkCopy(conn))
-                    {
-                        bulk.BulkCopyTimeout = 3600;
-                        bulk.DestinationTableName = "DefinitionHashHistory";
-                        bulk.ColumnMappings.Add("Definition", "Definition");
-                        bulk.ColumnMappings.Add("Hash", "Hash");
-                        bulk.ColumnMappings.Add("ManifestVersion", "ManifestVersion");
-                        bulk.ColumnMappings.Add("DiscoveredUTC", "DiscoveredUTC");
-                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
-                        bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
-                        bulk.ColumnMappings.Add("State", "State");
-                        bulk.WriteToServer(dt);
-                    }
-                }
+                    // --- Batch INSERT/UPDATE for DefinitionHashHistory ---
+                    var insertHistory = new List<DestinyDefinitionHashHistoryCollectionItem>();
+                    var updateHistory = new List<DestinyDefinitionHashHistoryCollectionItem>();
 
-                // Batch Update
-                if (updateHistory.Count > 0)
-                {
-                    var tempTable = "#TempDefinitionHashHistory";
-                    var dt = new DataTable();
-                    dt.Columns.Add("HistoryId", typeof(long));
-                    dt.Columns.Add("Definition", typeof(string));
-                    dt.Columns.Add("Hash", typeof(long));
-                    dt.Columns.Add("ManifestVersion", typeof(Guid));
-                    dt.Columns.Add("DiscoveredUTC", typeof(DateTimeOffset));
-                    dt.Columns.Add("JSONContent", typeof(string));
-                    dt.Columns.Add("JSONDiff", typeof(string));
-                    dt.Columns.Add("State", typeof(string));
-
-                    foreach (var item in updateHistory)
+                    while (SaveHistoryItems.Count > 0 && (insertHistory.Count + updateHistory.Count) < batchSize)
                     {
-                        dt.Rows.Add(
-                            item.HistoryId,
-                            item.Definition,
-                            item.Hash,
-                            item.ManifestVersion,
-                            item.DiscoveredUTC,
-                            string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent,
-                            string.IsNullOrWhiteSpace(item.JSONDiff) ? (object)DBNull.Value : item.JSONDiff,
-                            item.State.ToString()
-                        );
+                        if (SaveHistoryItems.TryDequeue(out var item))
+                        {
+                            if (item == null) continue;
+
+                            if (item.HistoryId == 0)
+                                insertHistory.Add(item);
+                            else
+                                updateHistory.Add(item);
+                        }
                     }
 
-                    using (var cmd = conn.CreateCommand())
+                    // Batch Insert
+                    if (insertHistory.Count > 0)
                     {
-                        cmd.CommandText = $@"
+                        var dt = new DataTable();
+                        dt.Columns.Add("Definition", typeof(string));
+                        dt.Columns.Add("Hash", typeof(long));
+                        dt.Columns.Add("ManifestVersion", typeof(Guid));
+                        dt.Columns.Add("DiscoveredUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("JSONContent", typeof(string));
+                        dt.Columns.Add("JSONDiff", typeof(string));
+                        dt.Columns.Add("State", typeof(string));
+
+                        foreach (var item in insertHistory)
+                        {
+                            dt.Rows.Add(
+                                item.Definition,
+                                item.Hash,
+                                item.ManifestVersion,
+                                item.DiscoveredUTC,
+                                string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent,
+                                string.IsNullOrWhiteSpace(item.JSONDiff) ? (object)DBNull.Value : item.JSONDiff,
+                                item.State.ToString()
+                            );
+                        }
+
+                        using (var transaction = conn.BeginTransaction())
+                        using (var bulk = new SqlBulkCopy(conn, copyOptions, transaction))
+                        {
+                            bulk.BulkCopyTimeout = 0;
+                            bulk.DestinationTableName = "DefinitionHashHistory";
+                            bulk.ColumnMappings.Add("Definition", "Definition");
+                            bulk.ColumnMappings.Add("Hash", "Hash");
+                            bulk.ColumnMappings.Add("ManifestVersion", "ManifestVersion");
+                            bulk.ColumnMappings.Add("DiscoveredUTC", "DiscoveredUTC");
+                            bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                            bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
+                            bulk.ColumnMappings.Add("State", "State");
+                            bulk.WriteToServer(dt);
+                        }
+                    }
+
+                    // Batch Update
+                    if (updateHistory.Count > 0)
+                    {
+                        var tempTable = "#TempDefinitionHashHistory";
+                        var dt = new DataTable();
+                        dt.Columns.Add("HistoryId", typeof(long));
+                        dt.Columns.Add("Definition", typeof(string));
+                        dt.Columns.Add("Hash", typeof(long));
+                        dt.Columns.Add("ManifestVersion", typeof(Guid));
+                        dt.Columns.Add("DiscoveredUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("JSONContent", typeof(string));
+                        dt.Columns.Add("JSONDiff", typeof(string));
+                        dt.Columns.Add("State", typeof(string));
+
+                        foreach (var item in updateHistory)
+                        {
+                            dt.Rows.Add(
+                                item.HistoryId,
+                                item.Definition,
+                                item.Hash,
+                                item.ManifestVersion,
+                                item.DiscoveredUTC,
+                                string.IsNullOrWhiteSpace(item.JSONContent) ? (object)DBNull.Value : item.JSONContent,
+                                string.IsNullOrWhiteSpace(item.JSONDiff) ? (object)DBNull.Value : item.JSONDiff,
+                                item.State.ToString()
+                            );
+                        }
+
+                        using (var cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = $@"
                         CREATE TABLE {tempTable} (
                             HistoryId BIGINT,
                             Definition NVARCHAR(255),
@@ -479,27 +497,28 @@ namespace Manifest.Report
                             JSONDiff NVARCHAR(MAX) NULL,
                             State NVARCHAR(50) NULL
                         );";
-                        cmd.ExecuteNonQuery();
-                    }
+                            cmd.ExecuteNonQuery();
+                        }
 
-                    using (var bulk = new SqlBulkCopy(conn))
-                    {
-                        bulk.BulkCopyTimeout = 3600;
-                        bulk.DestinationTableName = tempTable;
-                        bulk.ColumnMappings.Add("HistoryId", "HistoryId");
-                        bulk.ColumnMappings.Add("Definition", "Definition");
-                        bulk.ColumnMappings.Add("Hash", "Hash");
-                        bulk.ColumnMappings.Add("ManifestVersion", "ManifestVersion");
-                        bulk.ColumnMappings.Add("DiscoveredUTC", "DiscoveredUTC");
-                        bulk.ColumnMappings.Add("JSONContent", "JSONContent");
-                        bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
-                        bulk.ColumnMappings.Add("State", "State");
-                        bulk.WriteToServer(dt);
-                    }
+                        using (var transaction = conn.BeginTransaction())
+                        using (var bulk = new SqlBulkCopy(conn, copyOptions, transaction))
+                        {
+                            bulk.BulkCopyTimeout = 0;
+                            bulk.DestinationTableName = tempTable;
+                            bulk.ColumnMappings.Add("HistoryId", "HistoryId");
+                            bulk.ColumnMappings.Add("Definition", "Definition");
+                            bulk.ColumnMappings.Add("Hash", "Hash");
+                            bulk.ColumnMappings.Add("ManifestVersion", "ManifestVersion");
+                            bulk.ColumnMappings.Add("DiscoveredUTC", "DiscoveredUTC");
+                            bulk.ColumnMappings.Add("JSONContent", "JSONContent");
+                            bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
+                            bulk.ColumnMappings.Add("State", "State");
+                            bulk.WriteToServer(dt);
+                        }
 
-                    using (var cmd = conn.CreateCommand())
-                    {
-                        cmd.CommandText = $@"
+                        using (var cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = $@"
                         UPDATE dhh
                         SET
                             dhh.DiscoveredUTC = t.DiscoveredUTC,
@@ -513,11 +532,22 @@ namespace Manifest.Report
                             AND dhh.Hash = t.Hash;
 
                         DROP TABLE {tempTable};";
-                        cmd.ExecuteNonQuery();
+                            cmd.ExecuteNonQuery();
+                        }
                     }
-                }
 
-                //Thread.Sleep(5000);
+                    _token.ThrowIfCancellationRequested();
+                }
+                catch (OperationCanceledException oce)
+                {
+                    LogInformation($"Save thread operation cancelled: {oce.Message}");
+                    SaveBreak = true;
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    LogInformation($"Error in save thread: {ex}");
+                }
             }
         }
 
@@ -534,6 +564,8 @@ namespace Manifest.Report
 
             async Task WriteDiffFile(string diffFile, FileStatus fileStatus, JsonNode? prevJson, JsonNode? currJson)
             {
+                _token.ThrowIfCancellationRequested();
+
                 var formatter = new DestinyJsonPatchDeltaFormatter();
 
                 formatter.Database = db;
