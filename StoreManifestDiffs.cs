@@ -528,19 +528,18 @@ namespace Manifest.Report
             Removed
         }
 
-        DestinyJsonPatchDeltaFormatter formatter = new DestinyJsonPatchDeltaFormatter();
-
         public async Task<List<FileDiff>> FindDiffsBetweenFiles(ManifestInfo oldVersion, ManifestInfo newVersion, List<string> diffFiles, List<S3Object> previousFiles, List<S3Object> currentFiles, List<string> addedFiles, List<string> removedFiles)
         {
             List<FileDiff> changes = new List<FileDiff>();
 
             async Task WriteDiffFile(string diffFile, FileStatus fileStatus, JsonNode? prevJson, JsonNode? currJson)
             {
+                var formatter = new DestinyJsonPatchDeltaFormatter();
+
                 formatter.Database = db;
                 formatter.Definition = CleanDefinitionName(diffFile);
                 formatter.ManifestInfo = newVersion;
                 formatter.PreviousManifestInfo = oldVersion;
-                formatter.Changes = new DestinyDefinitionChanges();
 
                 formatter.PreviousDocument = prevJson;
                 formatter.CurrentDocument = currJson;
