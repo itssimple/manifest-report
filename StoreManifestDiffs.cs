@@ -244,7 +244,7 @@ namespace Manifest.Report
                 {
                     if (SaveItems.TryDequeue(out var item))
                     {
-                        if(item == null) continue;
+                        if (item == null) continue;
 
                         if (item.HashCollectionId == 0)
                             insertItems.Add(item);
@@ -540,6 +540,7 @@ namespace Manifest.Report
                 formatter.Definition = CleanDefinitionName(diffFile);
                 formatter.ManifestInfo = newVersion;
                 formatter.PreviousManifestInfo = oldVersion;
+                formatter.Changes = new DestinyDefinitionChanges();
 
                 formatter.PreviousDocument = prevJson;
                 formatter.CurrentDocument = currJson;
@@ -777,7 +778,7 @@ namespace Manifest.Report
 
             protected string CurrentProperty { get; private set; }
 
-            public DestinyDefinitionChanges Changes { get; private set; }
+            public DestinyDefinitionChanges Changes { get; set; }
             public MSSQLDB Database { get; internal set; }
 
             public DestinyJsonPatchDeltaFormatter() : base(usePatchableArrayChangeEnumerable: true)
