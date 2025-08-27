@@ -588,6 +588,8 @@ namespace Manifest.Report
                 {
                     foreach (var prop in diff.AsObject())
                     {
+                        _token.ThrowIfCancellationRequested();
+
                         if (DoneItems.Contains($"{newVersion.VersionId}|{formatter.Definition}|{prop.Key}"))
                         {
                             continue;
