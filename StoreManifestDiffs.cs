@@ -309,6 +309,7 @@ namespace Manifest.Report
                             bulk.ColumnMappings.Add("InVersions", "InVersions");
                             bulk.ColumnMappings.Add("JSONContent", "JSONContent");
                             bulk.WriteToServer(dt);
+                            transaction.Commit();
                         }
                     }
 
@@ -374,6 +375,7 @@ namespace Manifest.Report
                             bulk.ColumnMappings.Add("InVersions", "InVersions");
                             bulk.ColumnMappings.Add("JSONContent", "JSONContent");
                             bulk.WriteToServer(dt);
+                            transaction.Commit();
                         }
 
                         using (var cmd = conn.CreateCommand())
@@ -453,6 +455,7 @@ namespace Manifest.Report
                             bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
                             bulk.ColumnMappings.Add("State", "State");
                             bulk.WriteToServer(dt);
+                            transaction.Commit();
                         }
                     }
 
@@ -514,6 +517,7 @@ namespace Manifest.Report
                             bulk.ColumnMappings.Add("JSONDiff", "JSONDiff");
                             bulk.ColumnMappings.Add("State", "State");
                             bulk.WriteToServer(dt);
+                            transaction.Commit();
                         }
 
                         using (var cmd = conn.CreateCommand())
