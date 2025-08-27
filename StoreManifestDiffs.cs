@@ -226,7 +226,7 @@ namespace Manifest.Report
 
         public void SaveFromQueue()
         {
-            const int batchSize = 5000;
+            const int batchSize = 1000;
 
             using var conn = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<SqlConnection>();
             while (!SaveBreak)
