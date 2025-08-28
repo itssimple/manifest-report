@@ -212,26 +212,26 @@ namespace Manifest.Report
         {
             if (item.IsDirty) SaveItems.Enqueue(item);
 
-            //if (SaveItems.Count > 500)
-            //{
-            //    while (SaveItems.Count > 0)
-            //    {
-            //        Thread.Sleep(100);
-            //    }
-            //}
+            if (SaveItems.Count > 5000)
+            {
+                while (SaveItems.Count > 0)
+                {
+                    Thread.Sleep(100);
+                }
+            }
         }
 
         public void SaveHistoryItem(DestinyDefinitionHashHistoryCollectionItem item)
         {
             if (item.IsDirty) SaveHistoryItems.Enqueue(item);
 
-            //if (SaveHistoryItems.Count > 500)
-            //{
-            //    while (SaveHistoryItems.Count > 0)
-            //    {
-            //        Thread.Sleep(100);
-            //    }
-            //}
+            if (SaveHistoryItems.Count > 5000)
+            {
+                while (SaveHistoryItems.Count > 0)
+                {
+                    Thread.Sleep(100);
+                }
+            }
         }
 
         public void SaveFromQueue()
