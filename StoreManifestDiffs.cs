@@ -845,12 +845,7 @@ namespace Manifest.Report
 
                 if (modifiedItem.LatestManifestDateUTC != DateTimeOffset.MinValue)
                 {
-                    if (PreviousManifestInfo != null && modifiedItem.LatestManifestDateUTC >= PreviousManifestInfo.ManifestDate_UTC)
-                    {
-                        return (hash, longHash, null);
-                    }
-
-                    if (PreviousManifestInfo == null && modifiedItem.LatestManifestDateUTC >= ManifestInfo.ManifestDate_UTC)
+                    if (modifiedItem.LatestManifestDateUTC >= ManifestInfo.ManifestDate_UTC)
                     {
                         return (hash, longHash, null);
                     }
