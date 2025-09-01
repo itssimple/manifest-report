@@ -47,9 +47,6 @@ namespace Manifest.Report
 
             var manifestList = JsonSerializer.Deserialize<List<ManifestInfo>>(listJson).OrderBy(m => m.DiscoverDate_UTC).ToList();
 
-            Thread saveThread = new Thread(new ThreadStart(SaveFromQueue));
-            saveThread.Start();
-
             var sql = "SELECT MAX(DiscoveredUTC) FROM DefinitionHashHistory";
             var lastDiscoveredUTC = await db.ExecuteScalarAsync<DateTimeOffset>(sql);
 
@@ -117,11 +114,6 @@ namespace Manifest.Report
 
                 _token.ThrowIfCancellationRequested();
             }
-
-            SaveBreak = true;
-            LogInformation("Waiting for save thread to finish...");
-            saveThread.Join(TimeSpan.FromSeconds(30));
-            LogInformation("Save thread finished.");
         }
 
         async Task<List<S3Object>> FetchAllVersionFiles(Guid version)
@@ -206,32 +198,15 @@ namespace Manifest.Report
 
         public static Queue<DestinyDefinitionHashCollectionItem> SaveItems = new Queue<DestinyDefinitionHashCollectionItem>();
         public static Queue<DestinyDefinitionHashHistoryCollectionItem> SaveHistoryItems = new Queue<DestinyDefinitionHashHistoryCollectionItem>();
-        public static bool SaveBreak = false;
 
         public static void SaveItem(DestinyDefinitionHashCollectionItem item)
         {
             if (item.IsDirty) SaveItems.Enqueue(item);
-
-            if (SaveItems.Count > 5000)
-            {
-                while (SaveItems.Count > 0)
-                {
-                    Thread.Sleep(100);
-                }
-            }
         }
 
         public void SaveHistoryItem(DestinyDefinitionHashHistoryCollectionItem item)
         {
             if (item.IsDirty) SaveHistoryItems.Enqueue(item);
-
-            if (SaveHistoryItems.Count > 5000)
-            {
-                while (SaveHistoryItems.Count > 0)
-                {
-                    Thread.Sleep(100);
-                }
-            }
         }
 
         public void SaveFromQueue()
@@ -240,7 +215,7 @@ namespace Manifest.Report
             const SqlBulkCopyOptions copyOptions = SqlBulkCopyOptions.CheckConstraints | SqlBulkCopyOptions.FireTriggers;
 
             using var conn = serviceProvider.CreateScope().ServiceProvider.GetRequiredService<SqlConnection>();
-            while (!SaveBreak)
+            while (SaveItems.Count > 0 || SaveHistoryItems.Count > 0)
             {
                 try
                 {
@@ -275,6 +250,7 @@ namespace Manifest.Report
                         dt.Columns.Add("Definition", typeof(string));
                         dt.Columns.Add("Hash", typeof(long));
                         dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("LatestManifestDateUTC", typeof(DateTimeOffset));
                         dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
                         dt.Columns.Add("DisplayName", typeof(string));
                         dt.Columns.Add("DisplayIcon", typeof(string));
@@ -287,6 +263,7 @@ namespace Manifest.Report
                                 item.Definition,
                                 item.Hash,
                                 item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
+                                item.LatestManifestDateUTC ?? DateTimeOffset.MinValue,
                                 item.RemovedUTC ?? (object)DBNull.Value,
                                 string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
                                 string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
@@ -303,6 +280,7 @@ namespace Manifest.Report
                             bulk.ColumnMappings.Add("Definition", "Definition");
                             bulk.ColumnMappings.Add("Hash", "Hash");
                             bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
+                            bulk.ColumnMappings.Add("LatestManifestDateUTC", "LatestManifestDateUTC");
                             bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
                             bulk.ColumnMappings.Add("DisplayName", "DisplayName");
                             bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
@@ -322,6 +300,7 @@ namespace Manifest.Report
                         dt.Columns.Add("Definition", typeof(string));
                         dt.Columns.Add("Hash", typeof(long));
                         dt.Columns.Add("FirstDiscoveredUTC", typeof(DateTimeOffset));
+                        dt.Columns.Add("LatestManifestDateUTC", typeof(DateTimeOffset));
                         dt.Columns.Add("RemovedUTC", typeof(DateTimeOffset));
                         dt.Columns.Add("DisplayName", typeof(string));
                         dt.Columns.Add("DisplayIcon", typeof(string));
@@ -335,6 +314,7 @@ namespace Manifest.Report
                                 item.Definition,
                                 item.Hash,
                                 item.FirstDiscoveredUTC ?? DateTimeOffset.MinValue,
+                                item.LatestManifestDateUTC ?? DateTimeOffset.MinValue,
                                 item.RemovedUTC ?? (object)DBNull.Value,
                                 string.IsNullOrWhiteSpace(item.DisplayName) ? (object)DBNull.Value : item.DisplayName,
                                 string.IsNullOrWhiteSpace(item.DisplayIcon) ? (object)DBNull.Value : item.DisplayIcon,
@@ -345,18 +325,20 @@ namespace Manifest.Report
 
                         using (var cmd = conn.CreateCommand())
                         {
+                            cmd.CommandTimeout = 0;
                             cmd.CommandText = $@"
-                        CREATE TABLE {tempTable} (
-                            HashCollectionId BIGINT,
-                            Definition NVARCHAR(255),
-                            Hash BIGINT,
-                            FirstDiscoveredUTC DATETIMEOFFSET,
-                            RemovedUTC DATETIMEOFFSET NULL,
-                            DisplayName NVARCHAR(255) NULL,
-                            DisplayIcon NVARCHAR(255) NULL,
-                            InVersions NVARCHAR(MAX) NULL,
-                            JSONContent NVARCHAR(MAX) NULL
-                        );";
+    CREATE TABLE {tempTable} (
+        HashCollectionId BIGINT,
+        Definition NVARCHAR(255),
+        Hash BIGINT,
+        FirstDiscoveredUTC DATETIMEOFFSET,
+		LatestManifestDateUTC DATETIMEOFFSET,
+        RemovedUTC DATETIMEOFFSET NULL,
+        DisplayName NVARCHAR(255) NULL,
+        DisplayIcon NVARCHAR(255) NULL,
+        InVersions NVARCHAR(MAX) NULL,
+        JSONContent NVARCHAR(MAX) NULL
+    );";
                             cmd.ExecuteNonQuery();
                         }
 
@@ -369,6 +351,7 @@ namespace Manifest.Report
                             bulk.ColumnMappings.Add("Definition", "Definition");
                             bulk.ColumnMappings.Add("Hash", "Hash");
                             bulk.ColumnMappings.Add("FirstDiscoveredUTC", "FirstDiscoveredUTC");
+                            bulk.ColumnMappings.Add("LatestManifestDateUTC", "LatestManifestDateUTC");
                             bulk.ColumnMappings.Add("RemovedUTC", "RemovedUTC");
                             bulk.ColumnMappings.Add("DisplayName", "DisplayName");
                             bulk.ColumnMappings.Add("DisplayIcon", "DisplayIcon");
@@ -380,22 +363,24 @@ namespace Manifest.Report
 
                         using (var cmd = conn.CreateCommand())
                         {
+                            cmd.CommandTimeout = 0;
                             cmd.CommandText = $@"
-                        UPDATE dh
-                        SET
-                            dh.FirstDiscoveredUTC = t.FirstDiscoveredUTC,
-                            dh.RemovedUTC = t.RemovedUTC,
-                            dh.DisplayName = t.DisplayName,
-                            dh.DisplayIcon = t.DisplayIcon,
-                            dh.InVersions = t.InVersions,
-                            dh.JSONContent = t.JSONContent
-                        FROM DefinitionHashes dh
-                        INNER JOIN {tempTable} t
-                            ON dh.HashCollectionId = t.HashCollectionId
-                            AND dh.Definition = t.Definition
-                            AND dh.Hash = t.Hash;
+    UPDATE dh
+    SET
+        dh.FirstDiscoveredUTC = t.FirstDiscoveredUTC,
+		dh.LatestManifestDateUTC = t.LatestManifestDateUTC,
+        dh.RemovedUTC = t.RemovedUTC,
+        dh.DisplayName = t.DisplayName,
+        dh.DisplayIcon = t.DisplayIcon,
+        dh.InVersions = t.InVersions,
+        dh.JSONContent = t.JSONContent
+    FROM DefinitionHashes dh
+    INNER JOIN {tempTable} t
+        ON dh.HashCollectionId = t.HashCollectionId
+        AND dh.Definition = t.Definition
+        AND dh.Hash = t.Hash;
 
-                        DROP TABLE {tempTable};";
+    DROP TABLE {tempTable};";
                             cmd.ExecuteNonQuery();
                         }
                     }
@@ -489,17 +474,18 @@ namespace Manifest.Report
 
                         using (var cmd = conn.CreateCommand())
                         {
+                            cmd.CommandTimeout = 0;
                             cmd.CommandText = $@"
-                        CREATE TABLE {tempTable} (
-                            HistoryId BIGINT,
-                            Definition NVARCHAR(255),
-                            Hash BIGINT,
-                            ManifestVersion UNIQUEIDENTIFIER,
-                            DiscoveredUTC DATETIMEOFFSET,
-                            JSONContent NVARCHAR(MAX) NULL,
-                            JSONDiff NVARCHAR(MAX) NULL,
-                            State NVARCHAR(50) NULL
-                        );";
+    CREATE TABLE {tempTable} (
+        HistoryId BIGINT,
+        Definition NVARCHAR(255),
+        Hash BIGINT,
+        ManifestVersion UNIQUEIDENTIFIER,
+        DiscoveredUTC DATETIMEOFFSET,
+        JSONContent NVARCHAR(MAX) NULL,
+        JSONDiff NVARCHAR(MAX) NULL,
+        State NVARCHAR(50) NULL
+    );";
                             cmd.ExecuteNonQuery();
                         }
 
@@ -522,20 +508,21 @@ namespace Manifest.Report
 
                         using (var cmd = conn.CreateCommand())
                         {
+                            cmd.CommandTimeout = 0;
                             cmd.CommandText = $@"
-                        UPDATE dhh
-                        SET
-                            dhh.DiscoveredUTC = t.DiscoveredUTC,
-                            dhh.JSONContent = t.JSONContent,
-                            dhh.JSONDiff = t.JSONDiff,
-                            dhh.State = t.State
-                        FROM DefinitionHashHistory dhh
-                        INNER JOIN {tempTable} t
-                            ON dhh.HistoryId = t.HistoryId
-                            AND dhh.Definition = t.Definition
-                            AND dhh.Hash = t.Hash;
+    UPDATE dhh
+    SET
+        dhh.DiscoveredUTC = t.DiscoveredUTC,
+        dhh.JSONContent = t.JSONContent,
+        dhh.JSONDiff = t.JSONDiff,
+        dhh.State = t.State
+    FROM DefinitionHashHistory dhh
+    INNER JOIN {tempTable} t
+        ON dhh.HistoryId = t.HistoryId
+        AND dhh.Definition = t.Definition
+        AND dhh.Hash = t.Hash;
 
-                        DROP TABLE {tempTable};";
+    DROP TABLE {tempTable};";
                             cmd.ExecuteNonQuery();
                         }
                     }
@@ -545,7 +532,6 @@ namespace Manifest.Report
                 catch (OperationCanceledException oce)
                 {
                     LogInformation($"Save thread operation cancelled: {oce.Message}");
-                    SaveBreak = true;
                     break;
                 }
                 catch (Exception ex)
@@ -694,15 +680,7 @@ namespace Manifest.Report
 
                 LogInformation($"Found {formatter.Changes.Changes} changes in {diffFile} for {formatter.Definition}");
 
-                while (SaveItems.Count > 0)
-                {
-                    Thread.Sleep(100);
-                }
-
-                while (SaveHistoryItems.Count > 0)
-                {
-                    Thread.Sleep(100);
-                }
+                SaveFromQueue();
 
                 await Task.CompletedTask;
             }
@@ -863,28 +841,39 @@ namespace Manifest.Report
                     };
                 }
 
-                if (DoneItems.Contains($"{ManifestInfo.VersionId}|{Definition}|{hash}"))
-                {
-                    return (hash, longHash, null);
-                }
-
                 var modifiedItem = GetOrCreateItem(Database, Definition, longHash);
+
+                if (modifiedItem.LatestManifestDateUTC != DateTimeOffset.MinValue)
+                {
+                    if (PreviousManifestInfo != null && modifiedItem.LatestManifestDateUTC >= PreviousManifestInfo.ManifestDate_UTC)
+                    {
+                        return (hash, longHash, null);
+                    }
+
+                    if (PreviousManifestInfo == null && modifiedItem.LatestManifestDateUTC >= ManifestInfo.ManifestDate_UTC)
+                    {
+                        return (hash, longHash, null);
+                    }
+                }
 
                 if (modifiedItem.FirstDiscoveredUTC == DateTimeOffset.MinValue && PreviousManifestInfo != null)
                 {
                     modifiedItem.FirstDiscoveredUTC = PreviousManifestInfo.ManifestDate_UTC;
+                    modifiedItem.LatestManifestDateUTC = PreviousManifestInfo.ManifestDate_UTC;
                     modifiedItem.InVersions.Add(PreviousManifestInfo.VersionId);
                     modifiedItem.IsDirty = true;
                 }
                 else if (modifiedItem.FirstDiscoveredUTC == DateTimeOffset.MinValue && PreviousManifestInfo == null)
                 {
                     modifiedItem.FirstDiscoveredUTC = ManifestInfo.ManifestDate_UTC;
+                    modifiedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                     modifiedItem.IsDirty = true;
                 }
 
                 if (!modifiedItem.InVersions.Contains(ManifestInfo.VersionId))
                 {
                     modifiedItem.IsDirty = true;
+                    modifiedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                     modifiedItem.InVersions.Add(ManifestInfo.VersionId);
                 }
 
@@ -925,6 +914,7 @@ namespace Manifest.Report
                             {
                                 addedItem.IsDirty = true;
                                 addedItem.DisplayName = displayName;
+                                addedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                             }
                         }
 
@@ -936,6 +926,7 @@ namespace Manifest.Report
                             {
                                 addedItem.IsDirty = true;
                                 addedItem.DisplayIcon = displayIcon;
+                                addedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                             }
                         }
                     }
@@ -944,18 +935,21 @@ namespace Manifest.Report
                     {
                         addedItem.IsDirty = true;
                         addedItem.JSONContent = addedNode.ToJsonString();
+                        addedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                     }
 
                     if (addedItem.FirstDiscoveredUTC != ManifestInfo.ManifestDate_UTC)
                     {
                         addedItem.IsDirty = true;
                         addedItem.FirstDiscoveredUTC = ManifestInfo.ManifestDate_UTC;
+                        addedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                     }
 
                     if (!addedItem.InVersions.Contains(ManifestInfo.VersionId))
                     {
                         addedItem.IsDirty = true;
                         addedItem.InVersions.Add(ManifestInfo.VersionId);
+                        addedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                     }
 
                     SaveItem(addedItem);
@@ -996,6 +990,7 @@ namespace Manifest.Report
                     if (removedItem.JSONContent != delta.GetDeleted().ToJsonString())
                     {
                         removedItem.IsDirty = true;
+                        removedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                         removedItem.JSONContent = delta.GetDeleted().ToJsonString();
                     }
 
@@ -1003,17 +998,20 @@ namespace Manifest.Report
                     {
                         removedItem.IsDirty = true;
                         removedItem.FirstDiscoveredUTC = PreviousManifestInfo.ManifestDate_UTC;
+                        removedItem.LatestManifestDateUTC = PreviousManifestInfo.ManifestDate_UTC;
                         removedItem.InVersions.Add(PreviousManifestInfo.VersionId);
                     }
                     else if (PreviousManifestInfo == null)
                     {
                         removedItem.FirstDiscoveredUTC = ManifestInfo.ManifestDate_UTC;
+                        removedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                     }
 
                     if (removedItem.RemovedUTC != ManifestInfo.ManifestDate_UTC)
                     {
                         removedItem.IsDirty = true;
                         removedItem.RemovedUTC = ManifestInfo.ManifestDate_UTC;
+                        removedItem.LatestManifestDateUTC = ManifestInfo.ManifestDate_UTC;
                     }
 
                     SaveItem(removedItem);

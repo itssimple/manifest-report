@@ -13,6 +13,7 @@ namespace Manifest.Report.Classes.DBClasses
             Definition = row.Field<string>("Definition");
             Hash = row.Field<long>("Hash");
             FirstDiscoveredUTC = row.Field<DateTimeOffset>("FirstDiscoveredUTC");
+            LatestManifestDateUTC = row.Field<DateTimeOffset>("LatestManifestDateUTC");
             RemovedUTC = row.Field<DateTimeOffset?>("RemovedUTC");
             DisplayName = row.Field<string>("DisplayName");
             DisplayIcon = row.Field<string>("DisplayIcon");
@@ -24,6 +25,7 @@ namespace Manifest.Report.Classes.DBClasses
         public string Definition { get; set; }
         public long Hash { get; set; }
         public DateTimeOffset? FirstDiscoveredUTC { get; set; }
+        public DateTimeOffset? LatestManifestDateUTC { get; set; }
         public DateTimeOffset? RemovedUTC { get; set; }
         public string DisplayName { get; set; }
         public string DisplayIcon { get; set; }
