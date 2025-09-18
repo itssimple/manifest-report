@@ -27,7 +27,15 @@ string dbConnectionString = builder.Configuration["Database:ConnectionString"] ?
 var redisHost = builder.Configuration["Redis:Host"] ?? "127.0.0.1:6739";
 var redis = ConnectionMultiplexer.Connect(redisHost);
 
-builder.Services.AddCors();
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("PGCRViewer", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173/", "https://pgcr.eververse.trade/")
+                .AllowAnyHeader()
+                .AllowAnyMethod();
+    });
+});
 
 builder.Services.AddSingleton<IConnectionMultiplexer>(redis);
 
@@ -135,7 +143,7 @@ RecurringJob.AddOrUpdate<StoreNewsArticles>("manifest:checknews", x => x.FetchAn
 
 app.UseRouting();
 
-app.UseCors();
+app.UseCors("PGCRViewer");
 
 app.UseAuthorization();
 
