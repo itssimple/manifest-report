@@ -31,9 +31,10 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("PGCRViewer", policy =>
     {
-        policy.WithOrigins("http://localhost:5173/", "https://pgcr.eververse.trade/")
-                .AllowAnyHeader()
-                .AllowAnyMethod();
+        policy
+            .AllowAnyOrigin()
+            .AllowAnyHeader()
+            .AllowAnyMethod();
     });
 });
 
