@@ -10,6 +10,7 @@ using System.Text.Json.Nodes;
 namespace Manifest.Report
 {
     [Route("api/[controller]")]
+    [EnableCors]
     [ApiController]
     public class SearchController(MSSQLDB db, IConnectionMultiplexer connectionMultiplexer) : ControllerBase
     {
