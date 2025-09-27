@@ -1,0 +1,31 @@
+﻿using System.Data;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
+
+namespace Manifest.Report.Classes.DBClasses
+{
+    public class D1DefinitionData
+    {
+        [JsonPropertyName("definition")]
+        public string Definition { get; set; }
+        [JsonPropertyName("hash")]
+        public long Hash { get; set; }
+        [JsonIgnore]
+        public string JSONContent { get; set; }
+
+        [JsonPropertyName("data")]
+        public JsonNode Data { get; set; }
+
+        public D1DefinitionData(DataRow row)
+        {
+            Definition = row.Field<string>("Definition");
+            Hash = row.Field<long>("Hash");
+            JSONContent = row.Field<string>("JSONContent");
+            if (!string.IsNullOrWhiteSpace(JSONContent))
+            {
+                Data = JsonSerializer.Deserialize<JsonNode>(JSONContent);
+            }
+        }
+    }
+}

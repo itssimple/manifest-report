@@ -180,5 +180,58 @@ namespace Manifest.Report
                 __help = "If you want to change how many results you can view, add limit as a query parameter (min 1, max 1000), and if you want to include the data, add includeData=true into the query"
             });
         }
+
+        [HttpGet("/d1/hash/search")]
+        public async Task<IActionResult> SearchD1Hash(long hash, int limit = 10)
+        {
+            if (hash < 0 || limit <= 0)
+            {
+                return BadRequest("Invalid parameters.");
+            }
+
+            if (limit > 1000)
+            {
+                limit = 1000; // Cap the limit to a maximum of 1000
+            }
+
+            var sql = $@"
+                SELECT DISTINCT TOP {limit} *
+                FROM D1DefinitionData
+                WHERE Hash = @hash
+                ORDER BY Definition";
+            var parameters = new[]
+            {
+                new SqlParameter("hash", hash)
+            };
+
+            var results = await db.ExecuteListAsync<D1DefinitionData>(sql, parameters);
+            if (results.Count == 0)
+            {
+                return NotFound(new
+                {
+                    error = new
+                    {
+                        code = 404,
+                        message = $"No hashes found matching the hash '{hash}'.",
+                    }
+                });
+            }
+
+            // Get total count to let users know how many results are available if they specify the name better
+            var countSql = "SELECT COUNT(Hash) FROM D1DefinitionData WHERE Hash = @hash";
+            var totalCount = await db.ExecuteScalarAsync<int>(countSql, new SqlParameter("hash", hash));
+
+            return Ok(new
+            {
+                data = results.Select(i => new
+                {
+                    i.Definition,
+                    i.Hash,
+                    i.Data
+                }),
+                totalCount,
+                __help = "If you want to change how many results you can view, add limit as a query parameter (min 1, max 1000)"
+            });
+        }
     }
 }
