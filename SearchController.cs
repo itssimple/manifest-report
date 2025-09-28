@@ -227,6 +227,8 @@ namespace Manifest.Report
                 {
                     i.Definition,
                     i.Hash,
+                    i.DisplayName,
+                    i.DisplayIcon,
                     i.Data
                 }),
                 totalCount,
@@ -280,6 +282,8 @@ namespace Manifest.Report
                 {
                     i.Definition,
                     i.Hash,
+                    i.DisplayName,
+                    i.DisplayIcon,
                     i.Data
                 }),
                 totalCount,

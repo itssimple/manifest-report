@@ -11,6 +11,13 @@ namespace Manifest.Report.Classes.DBClasses
         public string Definition { get; set; }
         [JsonPropertyName("hash")]
         public long Hash { get; set; }
+        [JsonPropertyName("displayName"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string DisplayName {  get; set; }
+        [JsonPropertyName("description"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string Description { get; set; }
+        [JsonPropertyName("displayIcon"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string DisplayIcon { get; set; }
+
         [JsonIgnore]
         public string JSONContent { get; set; }
 
