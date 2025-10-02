@@ -33,6 +33,10 @@ namespace Manifest.Report.Classes.DBClasses
             {
                 Data = JsonSerializer.Deserialize<JsonNode>(JSONContent);
             }
+
+            DisplayName = row.Field<string>("DisplayName");
+            Description = row.Field<string>("Description");
+            DisplayIcon = row.Field<string>("DisplayIcon");
         }
     }
 }
