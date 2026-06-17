@@ -14,6 +14,7 @@ namespace manifest_report.Pages
 
         public async Task OnGet()
         {
+            Response.Redirect("https://site.manifest.report/manifests");
         }
     }
 }
